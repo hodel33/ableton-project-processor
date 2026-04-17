@@ -1,0 +1,16 @@
+# Exclude all folders
+*/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+dist/
+
+# Env & logs
+.env
+*.log
+
+# macOS
+.DS_Store

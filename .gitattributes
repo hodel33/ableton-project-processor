@@ -1,0 +1,6 @@
+# Default — convert to CRLF on Windows checkout
+* text=auto
+
+# Force LF for Mac/Linux scripts — never convert
+*.command text eol=lf
+*.sh text eol=lf
