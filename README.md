@@ -46,7 +46,13 @@ The idea behind all of this came funny enough from a friend ranting about receiv
 
 ## ⚙️ Installation
 
-1. 🐍 **Python 3.11+** required — no third-party packages needed.
+1. 🐍 **Install Python 3.11+**
+   - Download and install the latest version from [python.org](https://www.python.org/downloads/)
+   - **Windows tip**: During installation, check **"Add Python to PATH"**
+   - Verify installation by opening a terminal and running:
+     ```bash
+     python --version
+     ```
 
 2. ⬇️ **Place all files** in the same folder:
 ```
