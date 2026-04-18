@@ -54,7 +54,7 @@ The idea behind all of this came funny enough from a friend ranting about receiv
      python --version
      ```
 
-2. ⬇️ **Place all files** in the same folder:
+2. ⬇️ **Download and place these files** in the same folder:
 ```
    your_folder/
    ├── ableton_project_processor.py
