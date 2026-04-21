@@ -369,7 +369,6 @@ function renderPrefixes() {
           nameInput.blur();
         }
       });
-      nameInput.addEventListener('mousedown', (e) => e.stopPropagation());
     }
 
     const commentInput = el('input', {
@@ -388,7 +387,6 @@ function renderPrefixes() {
         p.comment = commentInput.value;
         markDirty();
       });
-      commentInput.addEventListener('mousedown', (e) => e.stopPropagation());
     }
 
     const deleteBtn = el('button', {
@@ -401,7 +399,6 @@ function renderPrefixes() {
 
     const row = el('div', {
       class: 'prefix' + (isSpecial ? ' pinned' : ''),
-      draggable: !isSpecial,
       dataset: { cat: p.category },
     },
       sortNum,
@@ -412,6 +409,11 @@ function renderPrefixes() {
     );
 
     if (!isSpecial) {
+      // Only enable drag when mousedown starts outside inputs/buttons — so
+      // clicking into the name or comment fields selects text normally.
+      row.addEventListener('mousedown', (e) => {
+        row.draggable = !e.target.closest('input, button');
+      });
       row.addEventListener('dragstart', (e) => {
         row.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'move';

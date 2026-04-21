@@ -751,8 +751,8 @@ body::after {
 }
 
 .prefix .prefix-name-input {
-  background: var(--bg-2);
-  border: 1px solid var(--stroke);
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--ink-0);
   font-family: var(--font-mono);
   font-size: 12.5px;
@@ -763,10 +763,10 @@ body::after {
   width: 100%;
   min-width: 0;
   outline: none;
-  transition: border-color 0.12s, color 0.12s;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
-.prefix .prefix-name-input:hover  { border-color: var(--stroke-hi); }
-.prefix .prefix-name-input:focus  { border-color: var(--amber); }
+.prefix .prefix-name-input:hover  { border-color: var(--stroke-hi); background: var(--bg-2); }
+.prefix .prefix-name-input:focus  { border-color: var(--amber); background: var(--bg-2); }
 .prefix .prefix-name-input.locked {
   background: transparent;
   border-color: transparent;
