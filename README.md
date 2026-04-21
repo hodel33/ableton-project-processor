@@ -111,7 +111,7 @@ Both drive the same underlying pipeline — pick whichever fits your workflow.
 
 ### 🖥️ GUI
 
-A webview app — pick a project folder, toggle your steps, hit **Run**. No `config.ini` editing required; the GUI reads and writes it for you.
+A webview app — pick a project folder, toggle your steps, tweak settings, choose your track prefix config, press **Save config**, then hit **Run**. No `config.ini` editing required; the GUI reads and writes it for you.
 
 #### 🪟 Windows
 Double-click `run_gui.bat`. On first launch, `pywebview` is installed automatically (takes ~30s).
