@@ -266,18 +266,17 @@ def splice_out(xml_text: str, blocks: list) -> str:
 
 def find_als_files(root: Path) -> list:
     """
-    Find all .als files exactly one subfolder level below root.
-    Scans:  root/AnyFolder/*.als
-    Skips:  root/AnyFolder/Backup/*.als  (any deeper nesting)
-    Skips:  root/*.als                   (files directly in root)
+    Find all .als files recursively below root.
+    Skips:  any file inside a 'Backup' folder (Ableton's own backups)
+    Skips:  files ending in '_processed' (already handled by the script)
     """
     als_files = []
-    for folder in root.iterdir():
-        if not folder.is_dir():
+    for f in root.rglob("*.als"):
+        if "Backup" in f.parts:
             continue
-        for f in folder.iterdir():
-            if f.is_file() and f.suffix.lower() == ".als" and not f.stem.endswith("_processed"):
-                als_files.append(f)
+        if f.stem.endswith("_processed"):
+            continue
+        als_files.append(f)
 
     return sorted(als_files)
 
@@ -303,17 +302,17 @@ def print_pipeline_header():
     print()
 
 
-def print_pipeline_info(root: Path):
+def print_pipeline_info(root: Path, pipeline: list):
     """Print active pipeline steps and prompt the user to confirm before processing."""
     print(f"  Project folder : {root}")
     print(f"  Active steps   :")
     print()
-    for step_id, step_fn, description in PIPELINE:
+    for step_id, step_fn, description in pipeline:
         print(f"    [+] {description}")
 
     print()
     
-    if any(step_id == "convert_mixer_automation_to_utility" for step_id, _, _ in PIPELINE):
+    if any(step_id == "convert_mixer_automation_to_utility" for step_id, _, _ in pipeline):
         print("  Note: project must have at least one Utility device anywhere to use as clone template.")
         print()
 
@@ -328,9 +327,12 @@ def load_config(config_file=CONFIG_LOCATION):
 
     config = configparser.ConfigParser()
     config.optionxform = str
-    if not config.read(config_file, encoding='utf-8'):
-        raise FileNotFoundError(f"{config_file} not found")
-    
+    try:
+        if not config.read(config_file, encoding='utf-8'):
+            raise FileNotFoundError(f"{config_file} not found")
+    except configparser.DuplicateOptionError as e:
+        raise ValueError(f"[{e.section}] duplicate prefix '{e.option}' — prefix names must be unique")
+
     return config
 
 
@@ -405,7 +407,19 @@ def load_track_config(config):
         except (ValueError, TypeError):
             raise ValueError(f"[TRACK_PREFIXES] invalid format for '{prefix}' — expected 'sort_order, color_idx'")
         track_config[prefix] = {'sort': sort_order, 'color': color_idx}
-    
+
+    # Reject duplicate sort orders — specials (DEF/RTN/MST) all share 99 by design, so skip them.
+    specials = {'DEF', 'RTN', 'MST'}
+    seen: dict[int, list[str]] = {}
+    for prefix, cfg in track_config.items():
+        if prefix in specials:
+            continue
+        seen.setdefault(cfg['sort'], []).append(prefix)
+    dupes = {s: names for s, names in sorted(seen.items()) if len(names) > 1}
+    if dupes:
+        details = '; '.join(f"sort {s} used by {', '.join(names)}" for s, names in dupes.items())
+        raise ValueError(f"[TRACK_PREFIXES] duplicate sort order(s) — {details}")
+
     return track_config
 
 
@@ -930,7 +944,7 @@ def step_project_report(xml_text: str, context: dict) -> tuple:
     out_path.write_text('\n'.join(lines), encoding='utf-8')
 
     # ── Short terminal summary ────────────────────────────────────────────────
-    print(f'\n  {"═" * 96}')
+    print(f'\n  {"═" * 80}')
 
     print(f'  {creator}')
     print(f'  BPM {float(tempo):.2f}  |  Time sig {time_sig}')
@@ -941,7 +955,7 @@ def step_project_report(xml_text: str, context: dict) -> tuple:
     frozen_str = f'  [{frozen_count} Frozen]' if frozen_count else ''
     print(f'  {"Tracks":<{TW}}: {len(non_master_tracks)} total  ({track_parts}){frozen_str}')
     print(f'  {"Clips":<{TW}}: {midi_clips + audio_clips} total  ({midi_clips} MIDI | {audio_clips} Audio)')
-    print(f'  {"Devices":<{TW}}: {int_devices + ext_devices} total  ({int_devices} Native | {ext_devices} External)  [{len(ext_plugins)} unique external plugins]')
+    print(f'  {"Devices":<{TW}}: {int_devices + ext_devices} total  ({int_devices} Native | {ext_devices} External)  [{len(ext_plugins)} unique external]')
     print(f'  {"Automations":<{TW}}: {automation_count}')
 
     flags = []
@@ -950,9 +964,9 @@ def step_project_report(xml_text: str, context: dict) -> tuple:
     if duplicate_count:  flags.append(f'{duplicate_count} duplicate track names')
     if disabled_devices: flags.append(f'{disabled_devices} disabled devices')
     if flags:
-        print(f'\n  ⚠  {",  ".join(flags)}')
+        print(f'\n  ⚠  {", ".join(flags)}')
 
-    print(f'  {"═" * 96}\n')
+    print(f'  {"═" * 80}\n')
 
     context['_report_written'] = True
     return xml_text, [f'Report saved → {out_path.name}']
@@ -1794,7 +1808,7 @@ def step_transpose_midi_notes(xml_text: str, context: dict) -> tuple:
 # RUNNER
 # ═════════════════════════════════════════════════════════════
 
-def run_pipeline(als_path, context):
+def run_pipeline(als_path, context, pipeline: list):
     """Run the full processing pipeline on a single .als file.
     Decompresses the gzip archive, runs all enabled steps in order,
     applies cleanup, validates the result and saves a _processed.als copy.
@@ -1816,7 +1830,7 @@ def run_pipeline(als_path, context):
 
     context['als_path'] = als_path # save .als path for use in step functions
 
-    for step_id, step_fn, description in PIPELINE:
+    for step_id, step_fn, description in pipeline:
         before   = xml
         xml, log = step_fn(xml, context)
         changed  = xml != before or context.pop('_report_written', False)
@@ -1872,15 +1886,14 @@ def main():
             'track_config': load_track_config(config),
         }
 
-        global PIPELINE # used by print_pipeline_info()
-        PIPELINE = load_pipeline(config)
+        pipeline = load_pipeline(config)
 
     except (FileNotFoundError, ValueError) as e:
         print(f"Config error: {e}")
         print()
         sys.exit(1)
 
-    if not PIPELINE:
+    if not pipeline:
         print("No pipeline steps enabled — update config.ini and re-run.")
         print()
         sys.exit(0)
@@ -1892,33 +1905,35 @@ def main():
         sys.exit(0)
 
     print_pipeline_header()
-    print_pipeline_info(root)
-    print(f"Found {len(als_files)} .als file(s) in subfolders of: {root}\n")
+    print_pipeline_info(root, pipeline)
+    print(f"\nFound {len(als_files)} .als file(s) in subfolders of: {root}\n")
 
     for als_path in als_files:
-        run_pipeline(als_path, context)
+        run_pipeline(als_path, context, pipeline)
         print()
 
     # ── Global external plugins list ──────────────────────────────────────
+    report_enabled = any(s[0] == 'get_project_report' for s in pipeline)
     plugin_projects = {}
-    for als_path in als_files:
-        report_path = als_path.parent / f'{als_path.stem}_report.txt'
-        if not report_path.exists():
-            continue
-        text = report_path.read_text(encoding='utf-8')
-        in_section = False
-        sep_count = 0
-        for line in text.splitlines():
-            if 'EXTERNAL PLUGINS' in line:
-                in_section = True
+    if report_enabled and len(als_files) >= 2:
+        for als_path in als_files:
+            report_path = als_path.parent / f'{als_path.stem}_report.txt'
+            if not report_path.exists():
                 continue
-            if in_section and line.startswith('═'):
-                sep_count += 1
-                if sep_count == 2:  # second ═ = end of section
-                    break
-                continue
-            if in_section and line.strip():
-                plugin_projects.setdefault(line.strip(), set()).add(als_path.name)
+            text = report_path.read_text(encoding='utf-8')
+            in_section = False
+            sep_count = 0
+            for line in text.splitlines():
+                if 'EXTERNAL PLUGINS' in line:
+                    in_section = True
+                    continue
+                if in_section and line.startswith('═'):
+                    sep_count += 1
+                    if sep_count == 2:  # second ═ = end of section
+                        break
+                    continue
+                if in_section and line.strip():
+                    plugin_projects.setdefault(line.strip(), set()).add(als_path.name)
 
     if plugin_projects:
         # Group plugins by which projects share them
@@ -1942,9 +1957,15 @@ def main():
             out_lines.append(f'  → {", ".join(projects)}')
             out_lines.append('')
 
-        out_path = als_files[0].parent / '@ External Plugins List.txt'
+        out_path = root / '@ External Plugins List.txt'
         out_path.write_text('\n'.join(out_lines), encoding='utf-8')
-        print(f'  External plugins list saved → {out_path.name}')
+        print(f'{"═" * 80}')
+        print('EXTERNAL PLUGINS SUMMARY  (all projects)')
+        print(f'{"═" * 80}')
+        print(f'  Saved → {out_path}')
+        print()
+
+    print()
 
 
 if __name__ == "__main__":
