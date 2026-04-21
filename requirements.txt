@@ -1,0 +1,5 @@
+# GUI only — the CLI (ableton_project_processor.py) has zero dependencies.
+pywebview>=5.0
+
+# macOS backend for pywebview (WebKit). Harmless to skip on Windows.
+pyobjc; sys_platform == "darwin"

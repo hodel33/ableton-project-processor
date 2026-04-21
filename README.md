@@ -4,9 +4,9 @@
 
 **Ableton Project Processor** is a modular toolbox for cleaning and transforming Ableton `.als` project files directly at the XML level. It decompresses the `.als` gzip archive, applies a configurable set of processing steps, runs integrity checks and writes a clean `_processed.als` copy alongside the original, all without touching a single knob. Whether you're tidying up a chaotic client project, batch quantizing and transposing all MIDI clips like magic, auto-sorting and recoloring every track in one pass, or just want a detailed report of every external plugin used across your sessions — this has you covered!
 
-The idea behind all of this came funny enough from a friend ranting about receiving messy Ableton projects from clients (who thought ranting could inspire!? hah). I joked that maybe I could help — and voilà, an Ableton project cleaner was born! It became so much more than that though, more of a swiss army knife now really. Proud of how it turned out! I genuinely hope it helps many of you producers out there. Cheers to my friends for contributing ideas along the way: Mattia (Nihil Young), Mateusz (Skytech), Sean Tyas and Jonas Hornblad 💜
+The idea behind all of this came funny enough from a friend ranting about receiving messy Ableton projects from clients (who thought ranting could inspire!? hah). I joked that maybe I could help — and voilà, an Ableton project cleaner was born! It became so much more than that though, more of a swiss army knife now really. Proud of how it turned out! I genuinely hope it helps many of you producers out there.
 
-> 💡 The original `.als` file is **never overwritten** — a new `_processed.als` file is always created.
+Cheers to my friends for contributing ideas along the way: Mattia (Nihil Young), Mateusz (Skytech), Sean Tyas and Jonas Hornblad 💜 And a big thank you to Luke Bond, who handed me the first working GUI for this project, inspiring me to take it further and polish it into its final form 🤝
 
 <br>
 
@@ -14,13 +14,15 @@ The idea behind all of this came funny enough from a friend ranting about receiv
 
 - **Compatible with Ableton Live 12 & 11**: Fully supports project structures from both versions, with processing steps designed to handle version-specific differences safely
 
-- **No Ableton Required**: Operates entirely on the raw decompressed XML inside `.als` files — no Live installation needed, no project loading, no GUI
+- **No Ableton Required**: Operates entirely on the raw decompressed XML inside `.als` files — no Live installation needed, no project loading
 
 - **Non-Destructive Processing**: The original `.als` is never touched; every run produces a new `_processed.als` alongside it
 
-- **Batch Processing**: Drop multiple projects in subfolders next to the script and process them all in one run
+- **Batch Processing**: Point the GUI or the terminal launcher at a root folder and every `.als` found in its subfolders gets processed in one run
 
-- **Modular Pipeline**: Toggle each processing step On or Off independently in `config.ini` — run only what you need, in a fixed deterministic order
+- **Modern GUI Launcher**: A sleek desktop app alongside the command-line workflow — every step and option laid out at a glance, no `config.ini` editing required, and a far more visual and user-friendly way to set up the Sort & Order prefix list
+
+- **Modular Pipeline**: Toggle each processing step On or Off independently — either visually in the GUI or by editing `config.ini` — run only what you need, in a fixed deterministic order
 
 - **Track Cleaning**: Remove empty tracks, muted tracks and return tracks with no active sends — with automatic cleanup of orphaned send holders and empty groups left behind
 
@@ -51,7 +53,8 @@ The idea behind all of this came funny enough from a friend ranting about receiv
    - **Windows tip**: During installation, check **"Add Python to PATH"**
    - Verify installation by opening a terminal and running:
      ```bash
-     python --version
+     python --version     # Windows
+     python3 --version    # macOS
      ```
 
 2. ⬇️ **Download and place these files** in the same folder:
@@ -59,56 +62,99 @@ The idea behind all of this came funny enough from a friend ranting about receiv
    your_folder/
    ├── ableton_project_processor.py
    ├── config.ini
-   ├── run.bat           ← Windows launcher
-   └── run.command       ← macOS launcher
+   ├── gui.py
+   ├── gui/                  ← GUI assets (HTML / CSS / JS)
+   ├── run.bat               ← Windows — terminal launcher
+   ├── run.command           ← macOS   — terminal launcher
+   ├── run_gui.bat           ← Windows — GUI launcher
+   └── run_gui.command       ← macOS   — GUI launcher
 ```
 
-> 💡 You only need the launcher for your OS (`run.bat` for Windows, `run.command` for macOS)
+> 📦 **Quick download:** [**Get all files as ZIP**](https://github.com/hodel33/ableton-project-processor/archive/refs/heads/main.zip) — unzip, then delete any files you don't need (see tip below).
 
-3. Your `.als` projects should be organised **one subfolder deep** relative to the root folder:
+> 💡 You only need the launcher(s) for your OS (`.bat` for Windows, `.command` for macOS). The GUI is optional — if you only want the terminal workflow, the `gui.py` + `gui/` folder + `run_gui.*` files aren't needed.
+
+3. Both launchers scan `.als` files **recursively** from a root folder, and both skip anything inside a `Backup/` folder or ending in `_processed.als`. The only difference is which folder counts as the root:
+
+   - **Terminal** — the folder containing the script (fixed).
+   - **GUI** — whatever folder you pick in the UI.
+
 ```
-   your_folder/
+   your_folder/                        ← root
    ├── ableton_project_processor.py
    ├── config.ini
+   ├── gui.py
+   ├── gui/
    ├── run.(bat/command)
+   ├── run_gui.(bat/command)
    └── MySongs/
-       ├── MySong_1.als     ← scanned
-       └── MySong_2.als     ← scanned
+       ├── MySong_1.als                ← scanned
+       ├── MySong_1_processed.als      ← ignored
+       ├── Deeper/
+       │   └── MySong_2.als            ← scanned (any depth)
+       └── Backup/
+           └── MySong_bak.als          ← ignored
 ```
-   Files directly in the root or already named `_processed.als` are ignored.
 
 <br>
 
 ## 🚀 Usage
 
-Configure your steps in `config.ini`, then launch the script. It prints a **processing summary** before starting and prompts for confirmation — press `ENTER` to proceed or `q + ENTER` to exit.
+Two ways to run: 
+- **GUI** (point-and-click, live log, per-project history)
 
-### 🪟 Windows
-Double-click `run.bat` — that's it.
+- **Terminal** (reads `config.ini` directly). 
 
-### 🍎 macOS
+Both drive the same underlying pipeline — pick whichever fits your workflow.
+
+<br>
+
+### 🖥️ GUI
+
+A webview app — pick a project folder, toggle your steps, hit **Run**. No `config.ini` editing required; the GUI reads and writes it for you.
+
+#### 🪟 Windows
+Double-click `run_gui.bat`. On first launch, `pywebview` is installed automatically (takes ~30s).
+
+#### 🍎 macOS
+Double-click `run_gui.command`. On first launch, two external libraries `pywebview` + `pyobjc` are installed automatically (takes ~1 min — `pyobjc` is large).
+
 First-time setup required due to macOS security restrictions. Choose one of two options:
 
 **Option A — System Settings (easier):**
-1. Double-click `run.command` — a security popup will appear, just close it
+1. Double-click `run_gui.command` — a security popup will appear, just close it
 2. Go to **System Settings → Privacy & Security**
-3. Scroll down and click **"Open Anyway"** next to the `run.command` entry
-4. From now on, just double-click `run.command` to launch
+3. Scroll down and click **"Open Anyway"** next to the `run_gui.command` entry
+4. From now on, just double-click `run_gui.command` to launch
 
 **Option B — Terminal (one-time setup):**
 1. Right-click the folder → **Services → New Terminal at Folder**
 2. Run these two commands:
 ```bash
-   chmod +x run.command
-   xattr -d com.apple.quarantine run.command
+   chmod +x run_gui.command
+   xattr -d com.apple.quarantine run_gui.command
 ```
-3. Close Terminal — from now on just double-click `run.command` to launch
+3. Close Terminal — from now on just double-click `run_gui.command` to launch
+
+<br>
+
+### 💻 Terminal
+
+Configure your steps in `config.ini`, then launch the script. It prints a **processing summary** before starting and prompts for confirmation — press `ENTER` to proceed or `q + ENTER` to exit.
+
+#### 🪟 Windows
+Double-click `run.bat` — that's it.
+
+#### 🍎 macOS
+Same first-time unblock steps as the GUI — see the [🍎 macOS section under GUI](#-macos) above, just substitute `run.command` wherever `run_gui.command` is mentioned.
 
 <br>
 
 ## 🔧 Configuration
 
 All behaviour is controlled by `config.ini` in the same directory as the script.
+
+> 💡 The GUI reads and writes this file for you — so you can safely skip this section if you stick to the GUI.
 
 ### `[PIPELINE]` — Toggle steps on/off
 
@@ -155,37 +201,40 @@ Each prefix maps to a sort position and an Ableton color index (0–69). Two typ
 
 ```ini
 [TRACK_PREFIXES]
-# Prefix = Sort Order, Ableton Color Index (0-69)
-# ─── Individual track prefixes (2-letter) ────────────────────────
-BD  = 2, 14     # Kick                       — Red (light)
-DR  = 4, 56     # Drums                      — Red (dark)
-SB  = 6, 15     # Sub Bass                   — Brown
-MB  = 7, 15     # Mid Bass                   — Brown
-TB  = 8, 15     # Top Bass                   — Brown
-LD  = 10, 19    # Leads                      — Green
-PL  = 11, 19    # Plucks                     — Green
-AR  = 12, 19    # Arps                       — Green
-PD  = 13, 22    # Pads                       — Blue
-KY  = 16, 21    # Keys                       — Cyan
-OR  = 17, 39    # Orchestral                 — Purple
-FX  = 20, 0     # FX                         — Pink
-RS  = 21, 0     # Risers                     — Pink
-AT  = 22, 54    # Atmos                      — Pink
-VX  = 25, 3     # Vocals                     — Yellow
+# ───  Individual: 2-letter | Group: uppercase full word  ────────────
+KICKS       = 1, 56     # Kick group — all kick layers
+BD          = 2, 56     # Kick
 
-# ─── Wide group prefixes (full uppercase word) ───────────────────
-KICK        = 1, 14     # Kick group         — Red (light)
-DRUMS       = 3, 56     # Drums group        — Red (dark)
-BASS        = 5, 15     # Bass group         — Brown
-SYNTHS      = 9, 19     # Synths group       — Green
-INSTRUMENTS = 15, 21    # Instruments group  — Cyan
-EFFECTS     = 19, 0     # FX group           — Pink
-VOCALS      = 24, 3     # Vocals group       — Yellow
+DRUMS       = 3, 57     # Drums group — all percussion
+DR          = 4, 57     # Drum
 
-# ─── Special track types (by type, not prefix) ───────────────────
-DEF = 99, 13    # Default fallback           — White
-RTN = 99, 41    # Return tracks              — Grey
-MST = 99, 69    # Master                     — Black
+BASS        = 5, 15     # Bass group — all bass layers
+SB          = 6, 15     # Sub Bass
+MB          = 7, 1      # Mid Bass
+TB          = 8, 1      # Top Bass
+
+SYNTHS      = 9, 6      # Synths group — leads, plucks, arps, pads
+LD          = 10, 6     # Lead
+PL          = 11, 6     # Pluck
+AR          = 12, 6     # Arp
+PD          = 13, 61    # Pad
+
+INSTRUMENTS = 14, 21    # Instruments group — keys, orchestral (real instruments)
+KY          = 15, 21    # Keys — piano, organ, electric piano, rhodes, synth keys
+OR          = 16, 23    # Orchestral — orchestral instruments except Keys
+
+EFFECTS     = 17, 0     # FX group — all FX, risers, atmos
+FX          = 18, 0     # FX — event-based: impact, hit, sweep, one-shot
+RS          = 19, 0     # Riser — tension builder, downlifter
+AT          = 20, 54    # Atmos — sustained: noise bed, texture, drone
+
+VOCALS      = 21, 3     # Vocals group — all vocal tracks
+VX          = 22, 3     # Vocal
+
+# ───  Special track types (by type, not prefix)  ──────────────────
+DEF 	    = 99, 13	# Default — fallback for missing prefixes
+RTN 	    = 99, 41	# Return
+MST 	    = 99, 69	# Master
 
 # ─── Ableton color palette reference (5 x 14) ────────────────────
 # Col 1      (0, 14, 28, 42, 56)                   →  Red / Pink
@@ -235,11 +284,11 @@ Generated next to the source `.als` file when `get_project_report = true`. The f
 
 > 💡 To report on the original unmodified project, enable only `get_project_report` and disable all other steps — the report always reflects the state of the project after any enabled steps have run.
 
-A compact summary is also printed to the terminal during processing.
+A compact summary is also printed to the console during processing.
 
 ### Global report — `@ External Plugins List.txt`
 
-Automatically written to the same folder as your projects after all files have been processed, if more than one `.als` file was found. It aggregates the external plugin data from every `_report.txt` and produces two sections:
+Automatically written to the root folder (where the script / GUI launcher lives) after all files have been processed, if more than one `.als` file was found. It aggregates the external plugin data from every `_report.txt` and produces two sections:
 
 - **FULL LIST** — Every external plugin found across all projects, sorted alphabetically.
 - **CROSS-PROJECT USAGE** — Plugins grouped by which combination of projects they appear in; useful for spotting shared dependencies or missing installs.
@@ -260,7 +309,7 @@ After cleanup, the script runs integrity checks before saving:
 - **No new dangling PointeeIds** introduced by the script — only newly introduced ones block saving
 - **No truncated output** — verifies `</LiveSet>` is present at end of file
 
-If any check fails, the issue is printed clearly in the terminal output and the file is **not saved**.
+If any check fails, the issue is printed clearly in the console output and the file is **not saved**.
 
 <br>
 

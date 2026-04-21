@@ -1,5 +1,7 @@
-# Exclude all folders
+# Exclude all folders (user .als project folders live next to the script)
 */
+!gui/
+!gui/**
 
 # Python
 __pycache__/
