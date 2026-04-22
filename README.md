@@ -352,6 +352,65 @@ If any check fails, the issue is printed clearly in the console output and the f
 
 <br>
 
+## 🔍 How It Works
+
+Here's the trick nobody tells you: an `.als` file is just a **gzipped text file**. Rename any `.als` to `.gz`, unzip it, and you'll find a plain XML document describing every track, clip, device, knob and automation point in your project. Ableton Live reads and writes this XML on save — we just read and write it directly, no Live required.
+
+The script always follows the same pipeline:
+
+1. **Decompress** the `.als` → raw XML text in memory
+2. **Process** — run each enabled step (clean, sort, recolor, quantize, etc.) as text/XML transforms
+3. **Validate** the result (track IDs unique, returns consistent, no truncation, etc.)
+4. **Recompress** the new XML and save it as `ProjectName_processed.als` alongside the original
+
+Your original `.als` is never opened for writing — it's read-only from the script's perspective. If validation fails at step 3, nothing is saved at all.
+
+#### What does the XML actually look like?
+
+Every track in your set is a block like this inside the project XML (trimmed for clarity):
+
+```xml
+<MidiTrack Id="12">
+  <Name>
+    <EffectiveName Value="LD Supersaw" />
+    <UserName Value="" />
+  </Name>
+  <Color Value="14" />
+  <DeviceChain>
+    <Devices>
+      <PluginDevice Id="27">
+        <On>
+          <Manual Value="true" />
+        </On>
+        <PlugName Value="Pro-Q 3" />
+        ...
+      </PluginDevice>
+      <Compressor2 Id="28">
+        <On>
+          <Manual Value="true" />
+        </On>
+        ...
+      </Compressor2>
+      <PluginDevice Id="29">
+        <On>
+          <Manual Value="true" />
+        </On>
+        <PlugName Value="LFOTool_x64" />
+        ...
+      </PluginDevice>
+    </Devices>
+  </DeviceChain>
+</MidiTrack>
+```
+
+That `<Color Value="14"/>` is the track color index into Ableton's 70-slot palette. `EffectiveName` is the track's display name. `<On><Manual Value="true"/>` tells Ableton whether a device is enabled. When you drag a track, rename it, change its color or bypass a plugin in Live — you're just flipping these same values.
+
+So when the script **sorts and recolors** tracks by prefix, it's rewriting track blocks in order and setting `<Color Value="..."/>`. When it **removes disabled devices**, it finds every device where `<Manual Value="false"/>` and splices that block out. When it **quantizes MIDI**, it rewrites note time values directly. Every step is ultimately "find this piece of text, change or remove it, put the file back together" — except the text happens to be a very structured description of your whole project.
+
+That's the entire magic: Ableton's project format is open enough to edit safely, and the script just does what you'd do by hand — on hundreds of files at once, in under a second each.
+
+<br>
+
 ## 📜 License
 
 This project is licensed under a Custom License — see the [LICENSE](LICENSE) file for details.
