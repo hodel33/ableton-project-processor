@@ -160,7 +160,9 @@ Double-click `run_gui.command`. On first launch, two external libraries `pywebvi
 
 First-time setup is required once due to macOS security restrictions:
 
-1. Open **Terminal** — either via Spotlight (⌘ + Space → type "Terminal" → Enter), or in Finder via **Applications → Utilities → Terminal**
+1. Open **Terminal** — either via:
+- Spotlight (⌘ + Space → type "Terminal" → Enter)
+- or in Finder via **Applications → Utilities → Terminal**
 2. Type `cd ` (with a trailing space), then **drag the project folder** (the one containing `run_gui.command`) into the Terminal window — macOS will auto-fill the full path. Hit **Enter**. You're now inside the folder.
 3. Run these two commands:
 ```bash
