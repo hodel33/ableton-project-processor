@@ -158,22 +158,16 @@ Double-click `run_gui.bat`. On first launch, `pywebview` is installed automatica
 #### 🍎 macOS
 Double-click `run_gui.command`. On first launch, two external libraries `pywebview` + `pyobjc` are installed automatically (takes ~1 min — `pyobjc` is large).
 
-First-time setup required due to macOS security restrictions. Choose one of two options:
+First-time setup is required once due to macOS security restrictions:
 
-**Option A — System Settings (easier):**
-1. Double-click `run_gui.command` — a security popup will appear, just close it
-2. Go to **System Settings → Privacy & Security**
-3. Scroll down and click **"Open Anyway"** next to the `run_gui.command` entry
-4. From now on, just double-click `run_gui.command` to launch
-
-**Option B — Terminal (one-time setup):**
-1. Right-click the folder → **Services → New Terminal at Folder**
-2. Run these two commands:
+1. Open **Terminal** — either via Spotlight (⌘ + Space → type "Terminal" → Enter), or in Finder via **Applications → Utilities → Terminal**
+2. Type `cd ` (with a trailing space), then **drag the project folder** (the one containing `run_gui.command`) into the Terminal window — macOS will auto-fill the full path. Hit **Enter**. You're now inside the folder.
+3. Run these two commands:
 ```bash
    chmod +x run_gui.command
    xattr -d com.apple.quarantine run_gui.command
 ```
-3. Close Terminal — from now on just double-click `run_gui.command` to launch
+4. Close Terminal — from now on just double-click `run_gui.command` to launch
 
 <br>
 
