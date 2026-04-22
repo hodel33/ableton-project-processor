@@ -1,5 +1,7 @@
 # Ableton Project Processor 🎛️
 
+![Ableton Project Processor — GUI](readme_screens/gui.png)
+
 ## 📋 Overview
 
 **Ableton Project Processor** is a modular toolbox for cleaning and transforming Ableton `.als` project files directly at the XML level. It decompresses the `.als` gzip archive, applies a configurable set of processing steps, runs integrity checks and writes a clean `_processed.als` copy alongside the original, all without touching a single knob. Whether you're tidying up a chaotic client project, batch quantizing and transposing all MIDI clips like magic, auto-sorting and recoloring every track in one pass, or just want a detailed report of every external plugin used across your sessions — this has you covered!
@@ -176,6 +178,8 @@ First-time setup required due to macOS security restrictions. Choose one of two 
 ### 💻 Terminal
 
 Configure your steps in `config.ini`, then launch the script. It prints a **processing summary** before starting and prompts for confirmation — press `ENTER` to proceed or `q + ENTER` to exit.
+
+![Ableton Project Processor — Terminal](readme_screens/terminal.png)
 
 #### 🪟 Windows
 Double-click `run.bat` — that's it.

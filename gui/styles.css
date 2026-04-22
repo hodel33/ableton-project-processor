@@ -115,15 +115,24 @@ body::after {
 }
 
 .logo {
-  height: 40px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 5px;
 }
 .logo svg {
-  height: 100%;
+  height: 40px;
   width: auto;
   display: block;
+}
+.logo .copyright {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 300;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+  white-space: nowrap;
 }
 
 .brand-text h1 {

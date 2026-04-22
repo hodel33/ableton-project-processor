@@ -2,6 +2,8 @@
 */
 !gui/
 !gui/**
+!readme_screens/
+!readme_screens/**
 
 # Python
 __pycache__/
