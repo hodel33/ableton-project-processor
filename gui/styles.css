@@ -111,15 +111,15 @@ body::after {
 }
 
 .brand {
-  display: flex; align-items: center; gap: 16px;
+  display: flex; align-items: flex-end; gap: 16px;
 }
 
 .logo {
+  position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  margin-bottom: 5px;
 }
 .logo svg {
   height: 40px;
@@ -127,6 +127,11 @@ body::after {
   display: block;
 }
 .logo .copyright {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 4px;
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 300;
