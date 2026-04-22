@@ -561,15 +561,15 @@ class Api:
         try:
             config = app.load_config(str(CONFIG_PATH))
             settings = app.load_settings(config)
-            context = {
-                'dedupe_devices':          settings.get('dedupe_devices', []),
-                'exclude_conversion_types': settings.get('exclude_conversion_types', []),
-                'chain_suffix':            str(settings.get('duplicate_chain_suffix', '')).strip("'\""),
-                'exclude_midi_prefixes':   settings.get('exclude_midi_prefixes', []),
-                'transpose_semitones':     settings.get('transpose_semitones', 0),
-                'lane_height':             settings.get('lane_height', 68),
-                'track_config':            app.load_track_config(config),
-            }
+            context = app.Context(
+                track_config             = app.load_track_config(config),
+                dedupe_devices           = settings.get('dedupe_devices', []),
+                exclude_conversion_types = settings.get('exclude_conversion_types', []),
+                chain_suffix             = str(settings.get('duplicate_chain_suffix', '')).strip("'\""),
+                exclude_midi_prefixes    = settings.get('exclude_midi_prefixes', []),
+                transpose_semitones      = settings.get('transpose_semitones', 0),
+                lane_height              = settings.get('lane_height', 68),
+            )
             pipeline = app.load_pipeline(config)
 
             if not pipeline:

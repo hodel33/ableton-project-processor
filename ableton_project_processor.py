@@ -20,6 +20,7 @@ import sys
 import os
 import io
 import configparser
+from dataclasses import dataclass, field
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from collections import defaultdict
@@ -27,6 +28,24 @@ from urllib.parse import unquote
 
 
 CONFIG_LOCATION = "config.ini"
+
+
+# ═════════════════════════════════════════════════════════════
+# CONTEXT
+# ═════════════════════════════════════════════════════════════
+
+@dataclass
+class Context:
+    """Config + runtime state passed to every pipeline step."""
+    track_config: dict                                              # prefix → {color, ...} map (from track_config.ini)
+    dedupe_devices: list             = field(default_factory=list)  # device names to deduplicate
+    exclude_conversion_types: list   = field(default_factory=list)  # track types skipped by mixer-automation step
+    exclude_midi_prefixes: list      = field(default_factory=list)  # track-name prefixes skipped by MIDI-affecting steps
+    chain_suffix: str                = ''                           # suffix appended to cloned device chains
+    transpose_semitones: int         = 0                            # MIDI transpose amount
+    lane_height: int                 = 68                           # Track height
+    als_path: Path | None            = None                         # current .als being processed (set per-file by runner)
+    report_written: bool             = False                        # runtime flag: step_project_report sets this so the runner marks it ✓ even though the XML didn't change
 
 
 # ═════════════════════════════════════════════════════════════
@@ -197,9 +216,24 @@ def get_track_ranges(xml_text: str) -> list:
     return tracks
 
 
-def get_excluded_track_ranges(xml_text: str, context: dict, track_config: dict) -> list:
+def get_track_prefix(name: str, track_config: dict) -> str:
+    """Extract the prefix used for color/sort lookup from a track name.
+
+    Strips leading '#NN ' numbering, then takes the first word:
+      - ALL-CAPS word known in track_config → use as-is (e.g. 'DRUM', 'FX')
+      - otherwise the first 2 chars (e.g. 'Kick' → 'Ki')
+      - empty / single-char first word → '??' (falls back to DEF in lookups)
+    """
+    raw        = re.sub(r'^#\d+\s+', '', name)
+    first_word = raw.split()[0] if raw.split() else ""
+    if first_word.isupper() and first_word in track_config:
+        return first_word
+    return first_word[:2] if len(first_word) >= 2 else "??"
+
+
+def get_excluded_track_ranges(xml_text: str, context: Context, track_config: dict) -> list:
     """Return byte ranges for tracks whose prefix (or parent group prefix) is in exclude_midi_prefixes."""
-    exclude = set(context.get('exclude_midi_prefixes', []))
+    exclude = set(context.exclude_midi_prefixes)
     if not exclude:
         return []
 
@@ -208,9 +242,7 @@ def get_excluded_track_ranges(xml_text: str, context: dict, track_config: dict) 
         for start, end, content in find_blocks(xml_text, tag):
             m = re.search(r'<(?:UserName|EffectiveName)\s+Value="([^"]+)"', content)
             name = m.group(1) if m else ""
-            raw = re.sub(r'^#\d+\s+', '', name)
-            first_word = raw.split()[0] if raw.split() else ""
-            prefix = first_word if (first_word.isupper() and first_word in track_config) else first_word[:2]
+            prefix = get_track_prefix(name, track_config)
             xid_m = re.search(r'<(?:MidiTrack|AudioTrack|GroupTrack)\s+Id="(\d+)"', content)
             gid_m = re.search(r'<TrackGroupId\s+Value="(\d+)"', content)
             track_data.append({
@@ -264,6 +296,45 @@ def splice_out(xml_text: str, blocks: list) -> str:
     return xml_text
 
 
+def format_device_log_line(track: str, name: str) -> tuple[str, str, str]:
+    """Split a track name and device name into log-ready parts.
+
+    Returns (track_str, tag_str, dev_name).
+      track='1 Drums'  → track_str="1 'Drums'";   track='Master' → track_str="'Master'"
+      name='[FX] Reverb' → tag_str='[FX]', dev_name='Reverb';   name='Reverb' → tag_str='', dev_name='Reverb'
+    """
+    t_parts   = track.split(' ', 1)
+    track_str = f"{t_parts[0]} '{t_parts[1]}'" if len(t_parts) == 2 else f"'{track}'"
+    n_parts   = name.split('] ', 1)
+    tag_str   = n_parts[0] + ']' if len(n_parts) == 2 else ''
+    dev_name  = n_parts[1]      if len(n_parts) == 2 else name
+    return track_str, tag_str, dev_name
+
+
+def remove_empty_groups(xml_text: str, group_id_to_name: dict) -> tuple[str, list[str]]:
+    """Iteratively remove GroupTrack blocks that no longer contain any tracks.
+
+    Runs up to 10 passes: removing a group may empty its parent group, so
+    a single pass isn't enough. Returns (new_xml, log_lines).
+    """
+    log = []
+    for _ in range(10):
+        group_ids_in_use = set(re.findall(r'<TrackGroupId\s+Value="(\d+)"', xml_text))
+        empty_groups     = []
+        for s, e, c in find_blocks(xml_text, "GroupTrack"):
+            gid = re.search(r'<GroupTrack\s+Id="(\d+)"', c)
+            if gid and gid.group(1) not in group_ids_in_use:
+                empty_groups.append({"start": s, "end": e, "gid": gid.group(1)})
+        if not empty_groups:
+            break
+        for r in empty_groups:
+            name  = group_id_to_name.get(r['gid'], 'Group')
+            parts = name.split(' ', 1)
+            log.append(f"  Removed empty group {parts[0]} '{parts[1]}'" if len(parts) == 2 else f"  Removed empty group '{name}'")
+        xml_text = splice_out(xml_text, empty_groups)
+    return xml_text, log
+
+
 def find_als_files(root: Path) -> list:
     """
     Find all .als files recursively below root.
@@ -303,7 +374,7 @@ def print_pipeline_header():
 
 
 def print_pipeline_info(root: Path, pipeline: list):
-    """Print active pipeline steps and prompt the user to confirm before processing."""
+    """Print the project folder and the enabled pipeline steps."""
     print(f"  Project folder : {root}")
     print(f"  Active steps   :")
     print()
@@ -311,16 +382,18 @@ def print_pipeline_info(root: Path, pipeline: list):
         print(f"    [+] {description}")
 
     print()
-    
+
     if any(step_id == "convert_mixer_automation_to_utility" for step_id, _, _ in pipeline):
         print("  Note: project must have at least one Utility device anywhere to use as clone template.")
         print()
 
     print()
 
-    user_input = input("Press ENTER to start processing (q + ENTER to exit): ").strip().lower()
-    if user_input == "q":
-        exit()
+
+def confirm_start() -> bool:
+    """Prompt the user to confirm. Returns False if they chose to quit."""
+    return input("Press ENTER to start processing (q + ENTER to exit): ").strip().lower() != "q"
+
 
 def load_config(config_file=CONFIG_LOCATION):
     """Load and return the config.ini file as a ConfigParser object."""
@@ -630,12 +703,12 @@ def debug_track_heights(als_path):
 # Signature: step(xml_text, context) -> (xml_text, log_lines)
 # ═════════════════════════════════════════════════════════════
 
-def step_deduplicate_devices(xml_text: str, context: dict) -> tuple:
+def step_deduplicate_devices(xml_text: str, context: Context) -> tuple:
     """Keep only the first instance of each named device per track.
     Target names are set via dedupe_devices in config and matched as
     case-insensitive substrings — e.g. 'saus' matches 'Sausage Fattener'.
     """
-    targets = context["dedupe_devices"]
+    targets = context.dedupe_devices
     tracks  = get_track_ranges(xml_text)
 
     seen, to_remove = set(), []
@@ -657,17 +730,13 @@ def step_deduplicate_devices(xml_text: str, context: dict) -> tuple:
 
     log = []
     for r in to_remove:
-        parts     = r['track'].split(' ', 1)
-        track_str = f"{parts[0]} '{parts[1]}'" if len(parts) == 2 else f"'{r['track']}'"
-        name_bare = r['name'].split('] ', 1)
-        tag_str   = name_bare[0] + ']' if len(name_bare) == 2 else ''
-        dev_name  = name_bare[1] if len(name_bare) == 2 else r['name']
+        track_str, tag_str, dev_name = format_device_log_line(r['track'], r['name'])
         log.append(f"  Removed duplicate {tag_str} '{dev_name}' on track {track_str}")
 
     return splice_out(xml_text, to_remove), log
 
 
-def step_project_report(xml_text: str, context: dict) -> tuple:
+def step_project_report(xml_text: str, context: Context) -> tuple:
     """
     Export a full project report to _report.txt — read-only, never modifies the project.
 
@@ -939,7 +1008,7 @@ def step_project_report(xml_text: str, context: dict) -> tuple:
     lines.append('═' * 60)
 
     # ── Save report to txt ────────────────────────────────────────────────────
-    als_path  = context.get('als_path')
+    als_path  = context.als_path
     out_path  = als_path.parent / f'{als_path.stem}_report.txt'
     out_path.write_text('\n'.join(lines), encoding='utf-8')
 
@@ -968,11 +1037,11 @@ def step_project_report(xml_text: str, context: dict) -> tuple:
 
     print(f'  {"═" * 80}\n')
 
-    context['_report_written'] = True
+    context.report_written = True  # runner uses this to mark the step ✓ (XML itself didn't change)
     return xml_text, [f'Report saved → {out_path.name}']
 
 
-def step_remove_unused_return_tracks(xml_text: str, context: dict) -> tuple:
+def step_remove_unused_return_tracks(xml_text: str, context: Context) -> tuple:
     """
     A return track is considered unused if NO source track (Audio, MIDI, Group)
     has an active send routed to it with a value above Ableton's minimum.
@@ -1047,7 +1116,7 @@ def step_remove_unused_return_tracks(xml_text: str, context: dict) -> tuple:
     return xml_text, log
 
 
-def step_remove_disabled_devices(xml_text: str, context: dict) -> tuple:
+def step_remove_disabled_devices(xml_text: str, context: Context) -> tuple:
     """
     Remove any device (native or external) that has been disabled in Ableton.
 
@@ -1119,17 +1188,13 @@ def step_remove_disabled_devices(xml_text: str, context: dict) -> tuple:
 
     log = []
     for r in to_remove:
-        parts     = r['track'].split(' ', 1)
-        track_str = f"{parts[0]} '{parts[1]}'" if len(parts) == 2 else f"'{r['track']}'"
-        name_bare = r['name'].split('] ', 1)
-        tag_str   = name_bare[0] + ']' if len(name_bare) == 2 else ''
-        dev_name  = name_bare[1] if len(name_bare) == 2 else r['name']
+        track_str, tag_str, dev_name = format_device_log_line(r['track'], r['name'])
         log.append(f"  Removed disabled {tag_str} '{dev_name}' on track {track_str}")
 
     return splice_out(xml_text, to_remove), log
 
 
-def step_remove_non_automated_devices(xml_text: str, context: dict) -> tuple:
+def step_remove_non_automated_devices(xml_text: str, context: Context) -> tuple:
     """
     Remove insert devices that have no automation anywhere in the project.
 
@@ -1203,17 +1268,13 @@ def step_remove_non_automated_devices(xml_text: str, context: dict) -> tuple:
     
     log = []
     for r in to_remove:
-        parts     = r['track'].split(' ', 1)
-        track_str = f"{parts[0]} '{parts[1]}'" if len(parts) == 2 else f"'{r['track']}'"
-        name_bare = r['name'].split('] ', 1)
-        tag_str   = name_bare[0] + ']' if len(name_bare) == 2 else ''
-        dev_name  = name_bare[1] if len(name_bare) == 2 else r['name']
+        track_str, tag_str, dev_name = format_device_log_line(r['track'], r['name'])
         log.append(f"  Removed non-automated {tag_str} '{dev_name}' on track {track_str}")
 
     return splice_out(xml_text, to_remove), log
 
 
-def step_convert_mixer_automation_to_utility(xml_text: str, context: dict) -> tuple:
+def step_convert_mixer_automation_to_utility(xml_text: str, context: Context) -> tuple:
     """
     Convert Mixer Volume/Pan automation into a Utility (StereoGain) insert device.
 
@@ -1249,7 +1310,7 @@ def step_convert_mixer_automation_to_utility(xml_text: str, context: dict) -> tu
 
     # Track types excluded from conversion, mapped from config shorthands to XML tags
     _TYPE_MAP     = {'RTN': {'ReturnTrack'}, 'MST': {'MasterTrack', 'MainTrack'}}
-    raw = context.get('exclude_conversion_types', [])
+    raw = context.exclude_conversion_types
     exclude_types = set(raw if isinstance(raw, list) else [raw] if raw else [])
 
     # ── Collect work items ──────────────────────────────────────────────────────
@@ -1351,7 +1412,7 @@ def step_convert_mixer_automation_to_utility(xml_text: str, context: dict) -> tu
     return xml_text, log
 
 
-def step_remove_empty_tracks(xml_text: str, context: dict) -> tuple:
+def step_remove_empty_tracks(xml_text: str, context: Context) -> tuple:
     """
     Remove tracks that have no clips anywhere — no MIDI clips, no audio clips,
     no Session View clips. Checks AudioTrack and MidiTrack only.
@@ -1378,7 +1439,7 @@ def step_remove_empty_tracks(xml_text: str, context: dict) -> tuple:
         to_remove   = [r for r in to_remove if r['start'] != first_start]
 
     group_id_to_name = {}
-    for s, e, c in find_blocks(xml_text, "GroupTrack"):
+    for s, _, c in find_blocks(xml_text, "GroupTrack"):
         gid = re.search(r'<GroupTrack\s+Id="(\d+)"', c)
         if gid:
             group_id_to_name[gid.group(1)] = track_of(s, tracks)
@@ -1386,25 +1447,13 @@ def step_remove_empty_tracks(xml_text: str, context: dict) -> tuple:
     log = [f"  Removed empty track {r['name'].split(' ', 1)[0]} '{r['name'].split(' ', 1)[1]}'" for r in to_remove]
     xml_text = splice_out(xml_text, to_remove)
 
-    for _ in range(10):
-        group_ids_in_use = set(re.findall(r'<TrackGroupId\s+Value="(\d+)"', xml_text))
-        empty_groups     = []
-        for s, e, c in find_blocks(xml_text, "GroupTrack"):
-            gid = re.search(r'<GroupTrack\s+Id="(\d+)"', c)
-            if gid and gid.group(1) not in group_ids_in_use:
-                empty_groups.append({"start": s, "end": e, "gid": gid.group(1)})
-        if not empty_groups:
-            break
-        for r in empty_groups:
-            name  = group_id_to_name.get(r['gid'], 'Group')
-            parts = name.split(' ', 1)
-            log.append(f"  Removed empty group {parts[0]} '{parts[1]}'" if len(parts) == 2 else f"  Removed empty group '{name}'")
-        xml_text = splice_out(xml_text, empty_groups)
+    xml_text, group_log = remove_empty_groups(xml_text, group_id_to_name)
+    log.extend(group_log)
 
     return xml_text, log
 
 
-def step_remove_muted_tracks(xml_text: str, context: dict) -> tuple:
+def step_remove_muted_tracks(xml_text: str, context: Context) -> tuple:
     """
     Remove tracks that are muted/deactivated.
     Mute state is stored as <Manual Value="false"/> inside the track's Mixer <Speaker> block.
@@ -1438,7 +1487,7 @@ def step_remove_muted_tracks(xml_text: str, context: dict) -> tuple:
         to_remove   = [r for r in to_remove if r['start'] != first_start]
 
     group_id_to_name = {}
-    for s, e, c in find_blocks(xml_text, "GroupTrack"):
+    for s, _, c in find_blocks(xml_text, "GroupTrack"):
         gid = re.search(r'<GroupTrack\s+Id="(\d+)"', c)
         if gid:
             group_id_to_name[gid.group(1)] = track_of(s, tracks)
@@ -1446,25 +1495,13 @@ def step_remove_muted_tracks(xml_text: str, context: dict) -> tuple:
     log = [f"  Removed muted track {r['name'].split(' ', 1)[0]} '{r['name'].split(' ', 1)[1]}'" for r in to_remove]
     xml_text = splice_out(xml_text, to_remove)
 
-    for _ in range(10):
-        group_ids_in_use = set(re.findall(r'<TrackGroupId\s+Value="(\d+)"', xml_text))
-        empty_groups     = []
-        for s, e, c in find_blocks(xml_text, "GroupTrack"):
-            gid = re.search(r'<GroupTrack\s+Id="(\d+)"', c)
-            if gid and gid.group(1) not in group_ids_in_use:
-                empty_groups.append({"start": s, "end": e, "gid": gid.group(1)})
-        if not empty_groups:
-            break
-        for r in empty_groups:
-            name  = group_id_to_name.get(r['gid'], 'Group')
-            parts = name.split(' ', 1)
-            log.append(f"  Removed empty group {parts[0]} '{parts[1]}'" if len(parts) == 2 else f"  Removed empty group '{name}'")
-        xml_text = splice_out(xml_text, empty_groups)
+    xml_text, group_log = remove_empty_groups(xml_text, group_id_to_name)
+    log.extend(group_log)
 
     return xml_text, log
 
 
-def step_sort_color_tracks(xml_text: str, context: dict) -> tuple:
+def step_sort_color_tracks(xml_text: str, context: Context) -> tuple:
     """
     Sort tracks and set colors based on 2-letter prefixes in track names.
 
@@ -1473,7 +1510,7 @@ def step_sort_color_tracks(xml_text: str, context: dict) -> tuple:
     Children without a recognized prefix inherit their parent group's color.
     """
 
-    track_config = context['track_config']
+    track_config = context.track_config
 
     tracks = get_track_info(xml_text)
     if len(tracks) < 2:
@@ -1488,12 +1525,7 @@ def step_sort_color_tracks(xml_text: str, context: dict) -> tuple:
         elif track['type'] in ('MasterTrack', 'MainTrack'):
             prefix = 'MST'
         else:
-            raw_name = re.sub(r'^#\d+\s+', '', track['name']) # strip #XX numbering before prefix matching
-            first_word = raw_name.split()[0] if raw_name.split() else "??"
-            if first_word.isupper() and first_word in track_config:
-                prefix = first_word
-            else:
-                prefix = first_word[:2] if len(first_word) >= 2 else "??"
+            prefix = get_track_prefix(track['name'], track_config)
 
         config              = track_config.get(prefix, track_config["DEF"])
         track['prefix']     = prefix
@@ -1580,7 +1612,7 @@ def step_sort_color_tracks(xml_text: str, context: dict) -> tuple:
     return new_xml, log
 
 
-def step_duplicate_device_chain(xml_text: str, context: dict) -> tuple:
+def step_duplicate_device_chain(xml_text: str, context: Context) -> tuple:
     """
     Clone the device chain of every Audio and MIDI track into a new empty track
     inserted directly below the original. All clips and automation envelopes are
@@ -1588,7 +1620,7 @@ def step_duplicate_device_chain(xml_text: str, context: dict) -> tuple:
 
     Master, Return and Group tracks are never duplicated.
     """
-    suffix = context.get('chain_suffix', '')
+    suffix = context.chain_suffix
     base = max((int(i) for i in re.findall(r'Id="(\d+)"', xml_text)), default=0) + 1
     insertions = []
     log = []
@@ -1638,7 +1670,7 @@ def step_duplicate_device_chain(xml_text: str, context: dict) -> tuple:
     return xml_text, log
 
 
-def step_quantize_midi_notes(xml_text: str, context: dict) -> tuple:
+def step_quantize_midi_notes(xml_text: str, context: Context) -> tuple:
     """
     Quantize all MIDI note Time positions to 1/16 grid.
 
@@ -1657,7 +1689,7 @@ def step_quantize_midi_notes(xml_text: str, context: dict) -> tuple:
         return f'{prefix}"{quantized}"'
 
     # Build excluded byte ranges from prefixes specified in config exclude_midi_prefixes
-    excluded = get_excluded_track_ranges(xml_text, context, context.get('track_config', {}))
+    excluded = get_excluded_track_ranges(xml_text, context, context.track_config)
 
     # Quantize MIDI note Time values, skipping excluded track byte ranges entirely
     new_xml = sub_outside_ranges(
@@ -1673,9 +1705,9 @@ def step_quantize_midi_notes(xml_text: str, context: dict) -> tuple:
     return new_xml, [f"Quantized {count} MIDI notes to 1/16"]
 
 
-def step_set_track_heights(xml_text: str, context: dict) -> tuple:
+def step_set_track_heights(xml_text: str, context: Context) -> tuple:
     """Set all track lane heights to a consistent value (must be multiple of 17, 17–425)."""
-    lane_height = context['lane_height']
+    lane_height = context.lane_height
     valid_heights = [n * 17 for n in range(1, 26)]  # 17 → 425  ← LOCAL ✅
     
     if lane_height not in valid_heights:
@@ -1687,7 +1719,7 @@ def step_set_track_heights(xml_text: str, context: dict) -> tuple:
     return new_xml, [f"All track heights set to {lane_height}px"]
 
 
-def step_ungroup_tracks(xml_text: str, context: dict) -> tuple:
+def step_ungroup_tracks(xml_text: str, context: Context) -> tuple:
     """
     Remove all GroupTrack blocks and restore every child track to ungrouped state.
 
@@ -1750,7 +1782,7 @@ def step_ungroup_tracks(xml_text: str, context: dict) -> tuple:
     return xml_text, log
 
 
-def step_transpose_midi_notes(xml_text: str, context: dict) -> tuple:
+def step_transpose_midi_notes(xml_text: str, context: Context) -> tuple:
     """
     Transpose all MIDI notes across the entire project by a fixed number of semitones.
     All tracks move by the exact same amount — global pitch relationships are preserved.
@@ -1760,12 +1792,12 @@ def step_transpose_midi_notes(xml_text: str, context: dict) -> tuple:
     Tracks whose prefix (or parent group prefix) matches exclude_midi_prefixes in config
     are skipped entirely — both from the pitch range calculation and the transpose itself.
     """
-    semitones = int(context.get("transpose_semitones", 0))
+    semitones = int(context.transpose_semitones)
     if semitones == 0:
         return xml_text, ["Transpose = 0 — skipped"]
 
     # Build excluded byte ranges from prefixes specified in config exclude_midi_prefixes
-    excluded = get_excluded_track_ranges(xml_text, context, context.get('track_config', {}))
+    excluded = get_excluded_track_ranges(xml_text, context, context.track_config)
 
     # ── PHASE 1: find pitch range across non-excluded tracks only ────────────
     if excluded:
@@ -1808,7 +1840,7 @@ def step_transpose_midi_notes(xml_text: str, context: dict) -> tuple:
 # RUNNER
 # ═════════════════════════════════════════════════════════════
 
-def run_pipeline(als_path, context, pipeline: list):
+def run_pipeline(als_path, context: Context, pipeline: list):
     """Run the full processing pipeline on a single .als file.
     Decompresses the gzip archive, runs all enabled steps in order,
     applies cleanup, validates the result and saves a _processed.als copy.
@@ -1828,12 +1860,14 @@ def run_pipeline(als_path, context, pipeline: list):
 
     xml = original
 
-    context['als_path'] = als_path # save .als path for use in step functions
+    context.als_path = als_path  # save .als path for use in step functions
 
     for step_id, step_fn, description in pipeline:
         before   = xml
         xml, log = step_fn(xml, context)
-        changed  = xml != before or context.pop('_report_written', False)
+        # report_written: set by steps that do work on disk without touching the XML (step_project_report)
+        changed  = xml != before or context.report_written
+        context.report_written = False  # reset so the next step starts clean
         print(f"\n  [{'✓' if changed else '—'}] {description}")
         for line in log:
             print(f"         {line.lstrip()}")
@@ -1876,15 +1910,15 @@ def main():
         config = load_config()
         settings = load_settings(config)
 
-        context = {
-            'dedupe_devices': settings.get('dedupe_devices', []),
-            'exclude_conversion_types': settings.get('exclude_conversion_types', []),
-            'chain_suffix': settings.get('duplicate_chain_suffix', '').strip("'\""),
-            'exclude_midi_prefixes': settings.get('exclude_midi_prefixes', []),
-            'transpose_semitones': settings.get('transpose_semitones', 0),
-            'lane_height': settings.get('lane_height', 68),
-            'track_config': load_track_config(config),
-        }
+        context = Context(
+            track_config             = load_track_config(config),
+            dedupe_devices           = settings.get('dedupe_devices', []),
+            exclude_conversion_types = settings.get('exclude_conversion_types', []),
+            chain_suffix             = settings.get('duplicate_chain_suffix', '').strip("'\""),
+            exclude_midi_prefixes    = settings.get('exclude_midi_prefixes', []),
+            transpose_semitones      = settings.get('transpose_semitones', 0),
+            lane_height              = settings.get('lane_height', 68),
+        )
 
         pipeline = load_pipeline(config)
 
@@ -1906,6 +1940,8 @@ def main():
 
     print_pipeline_header()
     print_pipeline_info(root, pipeline)
+    if not confirm_start():
+        sys.exit(0)
     print(f"\nFound {len(als_files)} .als file(s) in subfolders of: {root}\n")
 
     for als_path in als_files:
