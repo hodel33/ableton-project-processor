@@ -6,6 +6,8 @@
 
 **Ableton Project Processor** is a modular toolbox for cleaning and transforming Ableton `.als` project files directly at the XML level. It decompresses the `.als` gzip archive, applies a configurable set of processing steps, runs integrity checks and writes a clean `_processed.als` copy alongside the original, all without touching a single knob. Whether you're tidying up a chaotic client project, batch quantizing and transposing all MIDI clips like magic, auto-sorting and recoloring every track in one pass, or just want a detailed report of every external plugin used across your sessions — this has you covered!
 
+> Curious how it all works under the hood? Have a look at the [🔍 How It Works](#-how-it-works) section further down.
+
 The idea behind all of this came funny enough from a friend ranting about receiving messy Ableton projects from clients (who thought ranting could inspire!? hah). I joked that maybe I could help — and voilà, an Ableton project cleaner was born! It became so much more than that though, more of a swiss army knife now really. Proud of how it turned out! I genuinely hope it helps many of you producers out there.
 
 Cheers to my friends for contributing ideas along the way: Mattia (Nihil Young), Mateusz (Skytech), Sean Tyas and Jonas Hornblad 💜 And a big thank you to Luke Bond, who handed me the first working GUI for this project, inspiring me to take it further and polish it into its final form 🤝
@@ -403,11 +405,11 @@ Every track in your set is a block like this inside the project XML (trimmed for
 </MidiTrack>
 ```
 
-That `<Color Value="14"/>` is the track color index into Ableton's 70-slot palette. `EffectiveName` is the track's display name. `<On><Manual Value="true"/>` tells Ableton whether a device is enabled. When you drag a track, rename it, change its color or bypass a plugin in Live — you're just flipping these same values.
+That `<Color Value="14"/>` is the track color index into Ableton's 70-slot palette. `EffectiveName` is the track's display name. `<On><Manual Value="true"/>` tells Ableton whether a device is enabled. Every `Id="..."` is how Ableton links things internally — tracks, devices, automation lanes and return sends all reference each other by these IDs, which is why the script's validation double-checks they stay unique and consistent before saving. When you drag a track, rename it, change its color or bypass a plugin in Live — you're just flipping these same values.
 
-So when the script **sorts and recolors** tracks by prefix, it's rewriting track blocks in order and setting `<Color Value="..."/>`. When it **removes disabled devices**, it finds every device where `<Manual Value="false"/>` and splices that block out. When it **quantizes MIDI**, it rewrites note time values directly. Every step is ultimately "find this piece of text, change or remove it, put the file back together" — except the text happens to be a very structured description of your whole project.
+So when the script **sorts and recolors** tracks by prefix, it's rewriting track blocks in order and setting `<Color Value="..."/>`. When it **removes disabled devices**, it finds every device where `<Manual Value="false"/>` and splices that block out. When it **quantizes MIDI**, it rewrites note time values directly. Every step is ultimately "find this piece of text, change or remove it, put the file back together" — except the text happens to be a very structured description of your whole project. Everything the script doesn't explicitly target is left byte-for-byte untouched.
 
-That's the entire magic: Ableton's project format is open enough to edit safely, and the script just does what you'd do by hand — on hundreds of files at once, in under a second each.
+That's the entire magic: Ableton's project format is open enough to edit safely, and the script just does what you'd do by hand — on hundreds of files at once, in under a second each. And because it's all plain text under the gzip, you never have to take my word for anything — unzip both the original and the `_processed` version, run a diff, and every single change the script made is right there in readable form. No black box.
 
 <br>
 
