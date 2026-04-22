@@ -10,6 +10,41 @@ Cheers to my friends for contributing ideas along the way: Mattia (Nihil Young),
 
 <br>
 
+### 🏗️ A Note on the Code Structure
+
+Yes — I know splitting functionality across 10–20 files would be the more "pro" approach. But this tool is aimed squarely at music producers, not devs, and I didn't want to scare anyone off with a maze of imports. Keeping the core logic inside a single main `.py` file also makes it easy for anyone curious (or cautious) to open it up and see exactly what's being done to their `.als` files — one scroll, no hunting. For a tool that touches your projects, I think that transparency is worth more than textbook modularity.
+
+<br>
+
+### 🤔 "Why not just use Ableton's API or one of those existing tools?"
+
+I got this question from Joel deadmau5. Great question — and honestly, the answer is: because none of them do what this does. Every Ableton API requires Live to be running with a project open. There are basically 4 API surfaces out there, and they all share the same hard limitation:
+
+**1. Max for Live (LOM — Live Object Model)**
+Runs inside a running Live instance, on the currently loaded project only. Literally its name is "Max for Live" — it requires Live Suite (or the add-on) and executes as a device inside the session. No project open = no API.
+
+**2. Control Surface / Remote Scripts (Python)**
+Python scripts that Live launches at startup. They hook into whatever project is currently loaded — designed to simulate a hardware controller. Can't touch files on disk, can't iterate projects.
+
+**3. AbletonOSC / LiveOSC / pylive**
+Third-party OSC wrappers around the LOM. Same limitation — they send messages to a running Live instance. Just a network layer over (1) and (2).
+
+**4. "Collect All and Save" / built-in batch**
+Ableton has no official batch-processing API. The only known trick is an old macOS Automator workflow that literally opens each project one at a time in Live, waits, runs Collect All and Save, closes it. That's not an API — that's UI automation. Minutes per project, visible, breaks if Live crashes, Mac-only.
+
+---
+
+This script skips all of that and works directly on the gzipped XML inside the `.als` — no Live, no plugins loading, no VST scans, no UI. Just open, read, transform, write. Which means:
+
+- ⚡ **Batch everything** — point it at a folder and process 50 projects in the time Live takes to open one
+- 🚫 **No Live needed** — runs on any machine, even one without Ableton installed
+- 🛡️ **Never touches the original** — writes a fresh `_processed.als` next to it, so nothing's ever at risk
+- 🤖 **Scriptable** — drop it in a watch folder, a cron job, a CI step; it's just Python
+
+I've always loved the magic of automation — that feeling when you kick off one command and watch a hundred tedious hand-edits just *happen*. This is exactly that, for projects you'd otherwise dread opening. Fast, efficient and it lets you spend the time on the music instead of the housekeeping 🎶
+
+<br>
+
 ### 🌟 Features
 
 - **Compatible with Ableton Live 12 & 11**: Fully supports project structures from both versions, with processing steps designed to handle version-specific differences safely
