@@ -16,7 +16,7 @@ Cheers to my friends for contributing ideas along the way: Mattia (Nihil Young),
 
 ### 🏗️ A Note on the Code Structure
 
-Yes — I know splitting functionality across 10–20 files would be the more "pro" approach. But this tool is aimed squarely at music producers, not devs, and I didn't want to scare anyone off with a maze of imports. Keeping the core logic inside a single main `.py` file also makes it easy for anyone curious (or cautious) to open it up and see exactly what's being done to their `.als` files — one scroll, no hunting. For a tool that touches your projects, I think that transparency is worth more than textbook modularity.
+Yes — I know splitting functionality across 5–10 files would be the more "pro" approach. But this tool is aimed squarely at music producers, not devs, and I didn't want to scare anyone off with a maze of imports. Keeping the core logic inside a single main `.py` file also makes it easy for anyone curious (or cautious) to open it up and see exactly what's being done to their `.als` files — one scroll, no hunting. For a tool that touches your projects, I think that transparency is worth more than textbook modularity.
 
 <br>
 
@@ -405,7 +405,7 @@ That `<Color Value="14"/>` is the track color index into Ableton's 70-slot palet
 
 So when the script **sorts and recolors** tracks by prefix, it's rewriting track blocks in order and setting `<Color Value="..."/>`. When it **removes disabled devices**, it finds every device where `<Manual Value="false"/>` and splices that block out. When it **quantizes MIDI**, it rewrites note time values directly. Every step is ultimately "find this piece of text, change or remove it, put the file back together" — except the text happens to be a very structured description of your whole project. Everything the script doesn't explicitly target is left byte-for-byte untouched.
 
-That's the entire magic: Ableton's project format is open enough to edit safely, and the script just does what you'd do by hand — on hundreds of files at once, in under a second each. And because it's all plain text under the gzip, you never have to take my word for anything — unzip both the original and the `_processed` version, run a diff, and every single change the script made is right there in readable form. No black box.
+That's the entire magic: Ableton's project format is open enough to edit safely, and the script just does what you'd do by hand — on hundreds of files at once, in a couple of seconds each. And because it's all plain text under the gzip, you never have to take my word for anything — unzip both the original and the `_processed` version, run a diff, and every single change the script made is right there in readable form. No black box.
 
 <br>
 
