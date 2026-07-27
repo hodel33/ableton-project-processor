@@ -73,7 +73,8 @@ TERM_W       = 12   # label pad; widest label is 'M4L devices' (11)
 # EXPLICIT backup location (Tier 5) gets its own, much larger one so a deliberate library
 # sweep is never starved by the guesses. Both scans are Stop-interruptible regardless.
 AUTO_TIER_BUDGET    = 200_000     # shared file cap across the automatic tiers (1–4)
-BACKUP_SEARCH_LIMIT = 1_000_000   # file cap for the backup_search_location (Tier 5); 0 = unlimited
+BACKUP_SEARCH_LIMIT = 1_000_000   # file cap for EACH backup_search_location (Tier 5); 0 = unlimited
+MAX_BACKUP_LOCATIONS = 3          # how many backup folders the user may add (Tier 5)
 
 # ═════════════════════════════════════════════════════════════
 # LOADING
@@ -236,7 +237,7 @@ def _tail_overlap(a_parts: list, b_parts: list) -> int:
 
 
 def locate_missing(missing: list, project_root: Path, resolved_dirs: set,
-                   backup_root: Path | None = None, budget_files: int = AUTO_TIER_BUDGET,
+                   backup_roots: list | None = None, budget_files: int = AUTO_TIER_BUDGET,
                    backup_budget: int = BACKUP_SEARCH_LIMIT, should_stop=None,
                    cli: bool = True) -> dict:
     """
@@ -258,9 +259,10 @@ def locate_missing(missing: list, project_root: Path, resolved_dirs: set,
     same-name file isn't grabbed. A genuine tie (no distinguishing subpath) stays offline — never
     a silent wrong relink. os.scandir yields the size for free on Windows. The automatic tiers
     (1–4, folders the user never chose) share one `budget_files` cap; the user's EXPLICIT backup
-    location (Tier 5) gets its own, much larger `backup_budget` so a deliberate library sweep is
-    never starved by the guesses (0 = unlimited). A drive-root/home block bounds every scan, and
-    `should_stop` makes the whole search interruptible (the console/GUI Stop button).
+    locations (Tier 5, up to a few master-library / external-drive folders) EACH get their own,
+    much larger `backup_budget` so a deliberate library sweep is never starved by the guesses
+    (0 = unlimited). A drive-root/home block bounds every scan, and `should_stop` makes the whole
+    search interruptible (the console/GUI Stop button).
     """
     want = {(n.lower(), int(s)): origin for _k, n, s, origin in missing if s and s != '0'}
     # Size-0 refs → matched by name alone (see docstring). want_n0 is constant; because a name
@@ -399,15 +401,17 @@ def locate_missing(missing: list, project_root: Path, resolved_dirs: set,
         while node is not None and up <= 3 and (n, s) not in found:
             scan(node)
             node, up = node.parent, up + 1
-    # ── Tier 5 — the user's backup search root from config.ini ([COLLECT]
-    #    backup_search_location), a single folder they point at their master sample library or
-    #    external drive. Runs last because it is the broadest region — but because it is the user's
-    #    DELIBERATE choice (not a guess), it gets its OWN, much larger budget instead of the scraps
-    #    the automatic tiers leave behind: refill the counter here so Tiers 1–4 can never starve it.
+    # ── Tier 5 — the user's backup search folders from config.ini ([COLLECT]
+    #    backup_search_location), up to a few folders they point at their master sample library,
+    #    a projects root or an external drive. Runs last because it is the broadest region — but
+    #    because it is the user's DELIBERATE choice (not a guess), EACH gets its OWN, much larger
+    #    budget instead of the scraps the automatic tiers leave behind: refill the counter before
+    #    each so neither Tiers 1–4 nor an earlier backup folder can starve a later one.
     #    0 = unlimited (bounded then only by Stop and the drive-root guard).
-    if backup_root is not None and backup_root.is_dir():
-        budget[0] = backup_budget if backup_budget > 0 else float('inf')
-        scan(backup_root)
+    for backup_root in (backup_roots or []):
+        if backup_root is not None and backup_root.is_dir():
+            budget[0] = backup_budget if backup_budget > 0 else float('inf')
+            scan(backup_root)
     heartbeat_close()   # erase the status line before the caller prints the outcome
 
     result = {k: found[(n.lower(), int(s))]
@@ -854,7 +858,7 @@ def claim_dest(out_dir: Path, folder: str, src: Path, used: dict) -> str:
 
 def plan_collect(als_list: list, project_root: Path, is_real_project: bool, out_dir: Path,
                  skip_packs: bool, skip_m4l: bool, display_root: Path,
-                 backup_root: Path | None = None, should_stop=None, cli: bool = True) -> dict:
+                 backup_roots: list | None = None, should_stop=None, cli: bool = True) -> dict:
     """
     ANALYSE one or more .als files destined for ONE output folder, and return a plan.
     Touches nothing on disk — so every unit in a run can be planned first, the user
@@ -895,7 +899,7 @@ def plan_collect(als_list: list, project_root: Path, is_real_project: bool, out_
     # (No phase label here — the search is usually instant. If it runs long on a big backup,
     #  locate_missing shows its own in-place status line while walking; the outcome is reported
     #  as the 'Recovered' box row below and, for anything still lost, the missing-file prompt.)
-    located, search_drew = (locate_missing(to_find, project_root, resolved_dirs, backup_root,
+    located, search_drew = (locate_missing(to_find, project_root, resolved_dirs, backup_roots,
                                             should_stop=should_stop, cli=cli)
                             if to_find else ({}, False))
     n_recovered = len(set(located.values()))   # unique offline files the search rescued
@@ -1251,14 +1255,19 @@ def load_collect_settings(config) -> dict:
     versions = raw('versions') or '1'
     if versions not in VERSION_CHOICES:
         versions = '1'
-    backup = raw('backup_search_location')
+    # Up to MAX_BACKUP_LOCATIONS folders, stored pipe-delimited in the one key (a lone path with
+    # no '|' still parses as a single location, so old configs keep working). '|' is illegal in
+    # Windows paths and vanishingly rare on macOS, so it's a safe separator.
+    backup_roots = [Path(p) for p in
+                    (s.strip() for s in raw('backup_search_location').split('|'))
+                    if p][:MAX_BACKUP_LOCATIONS]
 
     return {
         'versions':      versions,
         'skip_packs':    not flag('collect_ableton_packs', False),   # default: leave Packs out
         'skip_m4l':      not flag('collect_m4l_devices', True),      # default: collect M4L devices
         'plugin_report': flag('write_report', True),
-        'backup_root':   Path(backup) if backup else None,
+        'backup_roots':  backup_roots,
     }
 
 
@@ -1324,8 +1333,8 @@ def run_collect(root: Path, config, *, on_confirm_start=None, on_confirm_missing
         print(f"  {'Ableton Packs':<{SW}}: {'NOT Included' if cfg['skip_packs'] else 'Included'}")
         print(f"  {'M4L devices':<{SW}}: {'NOT Included' if cfg['skip_m4l'] else 'Included'}")
         print(f"  {'Report':<{SW}}: {'Enabled' if cfg['plugin_report'] else 'Disabled'}")
-        if cfg['backup_root']:
-            print(f"  {'Backup search':<{SW}}: {cfg['backup_root']}")
+        for i, br in enumerate(cfg['backup_roots']):
+            print(f"  {('Backup search' if i == 0 else ''):<{SW}}: {br}")
         print()
     else:
         # ── GUI: the settings are already visible in the left panel, so skip the block and
@@ -1355,11 +1364,12 @@ def run_collect(root: Path, config, *, on_confirm_start=None, on_confirm_missing
         print(f"      Note: a whole backlog? Batch it — see the README (\"Older projects\").")
 
     # A configured backup folder that doesn't exist (a typo, or an external drive that's
-    # unplugged) is silently skipped by the search — flag it, or the missing-files prompt at
-    # the end reads as if no backup was ever set, when really it just couldn't be reached.
-    if cfg['backup_root'] is not None and not cfg['backup_root'].is_dir():
-        print(f"\n  ⚠  Backup search location not found — skipping it: {cfg['backup_root']}")
-        print(f"      Check the path is correct and any external drive is connected, then re-run.")
+    # unplugged) is silently skipped by the search — flag each one, or the missing-files prompt
+    # at the end reads as if no backup was ever set, when really it just couldn't be reached.
+    for br in cfg['backup_roots']:
+        if not br.is_dir():
+            print(f"\n  ⚠  Backup search location not found — skipping it: {br}")
+            print(f"      Check the path is correct and any external drive is connected, then re-run.")
 
     if on_confirm_start is not None:
         if not on_confirm_start():
@@ -1381,7 +1391,7 @@ def run_collect(root: Path, config, *, on_confirm_start=None, on_confirm_missing
         out_dir = proot if is_real else proot / f"{files[0].stem}_collected"
         plans.append(plan_collect(files, proot, is_real, out_dir,
                                    cfg['skip_packs'], cfg['skip_m4l'], root,
-                                   cfg['backup_root'], should_stop=should_stop, cli=cli))
+                                   cfg['backup_roots'], should_stop=should_stop, cli=cli))
     # A Stop pressed mid-scan of the LAST unit's backup search won't hit the loop-top check above,
     # so catch it here too — before the missing-files prompt and any copying.
     if should_stop is not None and should_stop():

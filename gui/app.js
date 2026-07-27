@@ -56,6 +56,9 @@ const SETTINGS_SCHEMA = [
     placeholder: '68' },
 ];
 
+// Max backup search folders the Collect panel accepts (mirrors collect.MAX_BACKUP_LOCATIONS).
+const MAX_BACKUP_LOCATIONS = 3;
+
 // ════════════════════════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════════════════════════
@@ -64,7 +67,7 @@ const state = {
   pipeline: [],       // [{id, label, description, enabled}]
   settings: {},       // {key: string}
   prefixes: [],       // [{prefix, sort, color, category, comment}]
-  collect: {},        // {enabled, versions, collect_ableton_packs, collect_m4l_devices, write_report, backup_search_location}
+  collect: {},        // {enabled, versions, collect_ableton_packs, collect_m4l_devices, write_report, backup_search_locations[]}
   als_files: [],      // [{name, folder, path}]
   project_root: '',
   filter: 'all',
@@ -274,7 +277,11 @@ function renderAlsCount() {
 function renderFilesBar() {
   const bar = $('#filesBar');
   bar.textContent = '';
-  for (const f of state.als_files) {
+  // Supported files first, unsupported (pre-Live 11) grouped below them. Stable sort over the
+  // already-alphabetical list, so each group stays A–Z.
+  const files = [...state.als_files].sort((a, b) =>
+    (a.unsupported ? 1 : 0) - (b.unsupported ? 1 : 0));
+  for (const f of files) {
     const bad = !!f.unsupported;
     const chip = el('span', {
         class: 'file-chip' + (bad ? ' unsupported' : ''),
@@ -375,16 +382,6 @@ function renderCollect() {
     }));
   }
 
-  // Backup search location — text + native folder picker
-  const backupInput = el('input', {
-    type: 'text',
-    value: state.collect.backup_search_location || '',
-    placeholder: '(optional) e.g. C:/Samples',
-    spellcheck: 'false',
-    oninput: () => { state.collect.backup_search_location = backupInput.value; markDirty(); },
-  });
-  const browseBtn = el('button', { class: 'btn-mini', type: 'button', text: 'Browse', onclick: pickBackupFolder });
-
   const body = $('#collectBody');
   body.textContent = '';
   body.append(
@@ -399,11 +396,7 @@ function renderCollect() {
       'Copy the .amxd devices into the bundle. Turn off if the target machine already has your M4L devices — the report lists them'),
     collectToggleRow('write_report', 'Write requirements report',
       'Add "@ Required Plugins & Packs.txt" listing external plugins, M4L devices & Ableton Packs the set needs'),
-    el('div', { class: 'field' },
-      el('label', {}, 'Backup search location ', el('span', { class: 'hint', text: 'optional fallback' })),
-      el('div', { class: 'backup-row' }, backupInput, browseBtn),
-      el('div', { class: 'field-note', text: 'Extra folder searched for still-missing samples (master library / external drive).' })
-    )
+    buildBackupField()
   );
 
   applyCollectMode();
@@ -445,12 +438,68 @@ function toggleCollectEnabled() {
   rescan(true);   // the visible file set differs by mode — refresh it silently
 }
 
+// ── Backup search locations (1–3 folders) ────────────────────
+// One persistent input+Browse row that ADDS to a list; added folders show as compact chips
+// with an ✕. Capped at MAX_BACKUP_LOCATIONS — once full the add row is replaced by a hint.
+// The in-progress typed text lives here (not in state) so it survives re-renders but never
+// gets saved to config until committed as a chip.
+let backupDraft = '';
+
+function buildBackupField() {
+  const locs = state.collect.backup_search_locations || (state.collect.backup_search_locations = []);
+  const full = locs.length >= MAX_BACKUP_LOCATIONS;
+
+  const chips = locs.map((p, i) =>
+    el('div', { class: 'backup-chip', title: p },
+      el('span', { class: 'ico', text: '📁' }),
+      el('span', { class: 'path', text: p }),
+      el('button', { class: 'chip-x', type: 'button', title: 'Remove', text: '✕',
+        onclick: () => removeBackupLocation(i) })
+    ));
+
+  const input = el('input', {
+    type: 'text',
+    value: backupDraft,
+    placeholder: locs.length ? 'add another folder…' : '(optional) e.g. C:/Samples',
+    spellcheck: 'false',
+    oninput: (e) => { backupDraft = e.target.value; },
+    onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); addBackupLocation(e.target.value); } },
+  });
+  const browseBtn = el('button', { class: 'btn-mini', type: 'button', text: 'Browse', onclick: pickBackupFolder });
+
+  return el('div', { class: 'field' },
+    el('label', {}, 'Backup search locations ',
+      el('span', { class: 'hint', text: locs.length ? `${locs.length} / ${MAX_BACKUP_LOCATIONS}` : 'optional fallback' })),
+    locs.length ? el('div', { class: 'backup-chips' }, chips) : null,
+    full
+      ? el('div', { class: 'field-note', text: `Maximum ${MAX_BACKUP_LOCATIONS} — remove one to add another.` })
+      : el('div', { class: 'backup-row' }, input, browseBtn),
+    el('div', { class: 'field-note',
+      text: 'Extra folders searched for still-missing samples (master library, projects folder, external drive).' })
+  );
+}
+
+function addBackupLocation(path) {
+  const p = (path || '').trim();
+  const locs = state.collect.backup_search_locations || (state.collect.backup_search_locations = []);
+  if (!p || locs.length >= MAX_BACKUP_LOCATIONS) return;
+  if (locs.some(x => x.toLowerCase() === p.toLowerCase())) { toast('That folder is already in the list'); return; }
+  locs.push(p);
+  backupDraft = '';
+  renderCollect();
+  markDirty();
+}
+
+function removeBackupLocation(i) {
+  (state.collect.backup_search_locations || []).splice(i, 1);
+  renderCollect();
+  markDirty();
+}
+
 async function pickBackupFolder() {
   const res = await api('pick_backup_folder');
   if (!res || !res.ok) return;
-  state.collect.backup_search_location = res.path;
-  renderCollect();
-  markDirty();
+  addBackupLocation(res.path);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -973,7 +1022,7 @@ async function saveConfig(explicit) {
       collect_ableton_packs:  !!state.collect.collect_ableton_packs,
       collect_m4l_devices:    !!state.collect.collect_m4l_devices,
       write_report:           !!state.collect.write_report,
-      backup_search_location: state.collect.backup_search_location || '',
+      backup_search_locations: state.collect.backup_search_locations || [],
     },
   };
   const res = await api('save_config', payload);

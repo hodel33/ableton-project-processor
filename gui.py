@@ -28,7 +28,7 @@ import als_core
 # Import the two functions by name (as the CLI does), not the module — that frees the
 # name 'pipeline' for the local step list below, matching run_pipeline's own parameter.
 from pipeline import load_pipeline, run_pipeline, aggregate_external_plugins, step_catalog
-from collect import run_collect as run_collect_job, find_collect_als
+from collect import run_collect as run_collect_job, find_collect_als, MAX_BACKUP_LOCATIONS
 
 
 ROOT_DIR    = Path(__file__).parent.resolve()
@@ -384,13 +384,18 @@ def read_config_as_dict() -> dict:
             return default
         return config['COLLECT'].get(key, default).split('#')[0].strip()
 
+    # Up to 3 backup folders, stored pipe-delimited in the one key (see collect.load_collect_settings).
+    # The frontend works with a list of paths; a legacy single path parses to a one-item list.
+    backup_locations = [p for p in (s.strip() for s in _cget('backup_search_location').split('|'))
+                        if p][:MAX_BACKUP_LOCATIONS]
+
     collect = {
         "enabled":               _cget('enabled').lower() == 'true',
         "versions":              _cget('versions') or '1',
         "collect_ableton_packs": (_cget('collect_ableton_packs') or 'true').lower() == 'true',
         "collect_m4l_devices":   (_cget('collect_m4l_devices') or 'true').lower() == 'true',
         "write_report":          (_cget('write_report') or 'true').lower() == 'true',
-        "backup_search_location": _cget('backup_search_location'),
+        "backup_search_locations": backup_locations,
     }
 
     return {"pipeline": pipeline, "settings": settings_raw,
@@ -414,16 +419,19 @@ def write_config_from_dict(payload: dict) -> None:
     if settings_map:
         text = _rewrite_section_aligned(text, 'SETTINGS', settings_map)
 
-    # COLLECT: bools → 'true'/'false', versions + backup path as-is; same alignment treatment
+    # COLLECT: bools → 'true'/'false', versions + backup paths as-is; same alignment treatment.
+    # The 1–3 backup folders are joined back into the one key, pipe-delimited.
     collect = payload.get('collect')
     if collect:
+        locs = (collect.get('backup_search_locations') or [])[:MAX_BACKUP_LOCATIONS]
+        backup_joined = ' | '.join(str(p).strip() for p in locs if str(p).strip())
         collect_map = {
             'enabled':                'true' if collect.get('enabled') else 'false',
             'versions':               str(collect.get('versions', '1')),
             'collect_ableton_packs':  'true' if collect.get('collect_ableton_packs', True) else 'false',
             'collect_m4l_devices':    'true' if collect.get('collect_m4l_devices', True) else 'false',
             'write_report':           'true' if collect.get('write_report', True) else 'false',
-            'backup_search_location': str(collect.get('backup_search_location', '')),
+            'backup_search_location': backup_joined,
         }
         text = _rewrite_section_aligned(text, 'COLLECT', collect_map)
 
