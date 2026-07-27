@@ -28,7 +28,7 @@ import als_core
 # Import the two functions by name (as the CLI does), not the module — that frees the
 # name 'pipeline' for the local step list below, matching run_pipeline's own parameter.
 from pipeline import load_pipeline, run_pipeline, aggregate_external_plugins, step_catalog
-from collect import run_collect as run_collect_job, find_collect_als, MAX_BACKUP_LOCATIONS
+from collect import run_collect as run_collect_job, find_collect_als
 
 
 ROOT_DIR    = Path(__file__).parent.resolve()
@@ -384,10 +384,11 @@ def read_config_as_dict() -> dict:
             return default
         return config['COLLECT'].get(key, default).split('#')[0].strip()
 
-    # Up to 3 backup folders, stored pipe-delimited in the one key (see collect.load_collect_settings).
-    # The frontend works with a list of paths; a legacy single path parses to a one-item list.
+    # Any number of backup folders, stored pipe-delimited in the one key (see
+    # collect.load_collect_settings). The frontend works with a list of paths; a legacy single
+    # path parses to a one-item list.
     backup_locations = [p for p in (s.strip() for s in _cget('backup_search_location').split('|'))
-                        if p][:MAX_BACKUP_LOCATIONS]
+                        if p]
 
     collect = {
         "enabled":               _cget('enabled').lower() == 'true',
@@ -423,7 +424,7 @@ def write_config_from_dict(payload: dict) -> None:
     # The 1–3 backup folders are joined back into the one key, pipe-delimited.
     collect = payload.get('collect')
     if collect:
-        locs = (collect.get('backup_search_locations') or [])[:MAX_BACKUP_LOCATIONS]
+        locs = collect.get('backup_search_locations') or []
         backup_joined = ' | '.join(str(p).strip() for p in locs if str(p).strip())
         collect_map = {
             'enabled':                'true' if collect.get('enabled') else 'false',

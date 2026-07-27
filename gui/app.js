@@ -56,9 +56,6 @@ const SETTINGS_SCHEMA = [
     placeholder: '68' },
 ];
 
-// Max backup search folders the Collect panel accepts (mirrors collect.MAX_BACKUP_LOCATIONS).
-const MAX_BACKUP_LOCATIONS = 3;
-
 // ════════════════════════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════════════════════════
@@ -440,14 +437,13 @@ function toggleCollectEnabled() {
 
 // ── Backup search locations (1–3 folders) ────────────────────
 // One persistent input+Browse row that ADDS to a list; added folders show as compact chips
-// with an ✕. Capped at MAX_BACKUP_LOCATIONS — once full the add row is replaced by a hint.
-// The in-progress typed text lives here (not in state) so it survives re-renders but never
-// gets saved to config until committed as a chip.
+// with an ✕. No cap — the search early-exits once every sample is found and is Stop-able, so
+// extra folders are cheap. The in-progress typed text lives here (not in state) so it survives
+// re-renders but never gets saved to config until committed as a chip.
 let backupDraft = '';
 
 function buildBackupField() {
   const locs = state.collect.backup_search_locations || (state.collect.backup_search_locations = []);
-  const full = locs.length >= MAX_BACKUP_LOCATIONS;
 
   const chips = locs.map((p, i) =>
     el('div', { class: 'backup-chip', title: p },
@@ -469,11 +465,9 @@ function buildBackupField() {
 
   return el('div', { class: 'field' },
     el('label', {}, 'Backup search locations ',
-      el('span', { class: 'hint', text: locs.length ? `${locs.length} / ${MAX_BACKUP_LOCATIONS}` : 'optional fallback' })),
+      el('span', { class: 'hint', text: locs.length ? `${locs.length} added` : 'optional fallback' })),
     locs.length ? el('div', { class: 'backup-chips' }, chips) : null,
-    full
-      ? el('div', { class: 'field-note', text: `Maximum ${MAX_BACKUP_LOCATIONS} — remove one to add another.` })
-      : el('div', { class: 'backup-row' }, input, browseBtn),
+    el('div', { class: 'backup-row' }, input, browseBtn),
     el('div', { class: 'field-note',
       text: 'Extra folders searched for still-missing samples (master library, projects folder, external drive).' })
   );
@@ -482,7 +476,7 @@ function buildBackupField() {
 function addBackupLocation(path) {
   const p = (path || '').trim();
   const locs = state.collect.backup_search_locations || (state.collect.backup_search_locations = []);
-  if (!p || locs.length >= MAX_BACKUP_LOCATIONS) return;
+  if (!p) return;
   if (locs.some(x => x.toLowerCase() === p.toLowerCase())) { toast('That folder is already in the list'); return; }
   locs.push(p);
   backupDraft = '';

@@ -213,7 +213,7 @@ versions               = 1       # how many recent versions per project to colle
 collect_ableton_packs  = false   # also copy in samples from Ableton's Core Library + Add-On Packs
 collect_m4l_devices    = true    # copy Max for Live devices (.amxd) into the bundle
 write_report           = true    # write "@ Required Plugins & Packs.txt" inside each bundle
-backup_search_location = C:\Samples | D:\Projects | E:\Collabs  # optional — up to 3 folders (| separated) to search for missing samples
+backup_search_location = C:\Samples | D:\Projects | E:\Collabs  # optional — one or more folders (| separated) to search for missing samples
 ```
 
 - `enabled` — `true` switches this run to Collect mode; `false` runs the normal cleaning pipeline.
@@ -221,7 +221,7 @@ backup_search_location = C:\Samples | D:\Projects | E:\Collabs  # optional — u
 - `collect_ableton_packs` — `true` also copies in samples from Ableton's Core Library and Add-On Packs, making the bundle fully standalone; `false` leaves them out (the report lists which Packs are needed). Off by default, since most people already have those Packs.
 - `collect_m4l_devices` — `true` (the default) copies each project's Max for Live devices (`.amxd`) into the bundle. Set `false` if the target machine (or your collaborator) already has your M4L devices — they're then left out and the report lists which ones are needed. On by default, since M4L devices are often custom/third-party and *not* something the other side is guaranteed to have.
 - `write_report` — `true` (the default) writes a short `@ Required Plugins & Packs.txt` inside each bundle (next to the collected `.als`), listing the plugins and Packs the project needs; set `false` to skip it.
-- `backup_search_location` — **up to 3** optional folders to search when a sample has gone missing — your master sample library, a projects folder, an external drive… Separate several with a `|` (e.g. `C:\Samples | D:\Projects | E:\Collabs`); a single folder needs no separator. Leave blank to skip. *(In the GUI these are added as separate entries — no `|` typing needed.)*
+- `backup_search_location` — **one or more** optional folders to search when a sample has gone missing — your master sample library, a projects folder, an external drive… Separate several with a `|` (e.g. `C:\Samples | D:\Projects | E:\Collabs`); a single folder needs no separator. Leave blank to skip. *(In the GUI these are added as separate entries — no `|` typing needed.)*
 
 ### `[PIPELINE]` — Toggle steps on/off
 
@@ -367,11 +367,11 @@ When Collect is switched on, it **replaces** the cleaning pipeline for that run.
 
 ### 🔎 Finding lost samples
 
-If a sample has gone missing — a moved file, a renamed folder, an offline freeze track — Collect doesn't just give up. It searches your disk for it: first around the project itself, then in the folders your other samples came from, and finally in up to **three optional backup search locations** you can point at your master sample library, a projects folder and/or an external drive. Each backup folder gets its own full search, so adding more never starves the others. Anything it rescues is pulled into the bundle automatically. Whatever genuinely can't be found is listed clearly **before anything is written**, so you can choose to continue (and relink those later in Live) or cancel.
+If a sample has gone missing — a moved file, a renamed folder, an offline freeze track — Collect doesn't just give up. It searches your disk for it: first around the project itself, then in the folders your other samples came from, and finally in **one or more optional backup search locations** you can point at your master sample library, a projects folder and/or an external drive. Each backup folder gets its own full search, so adding more never starves the others. Anything it rescues is pulled into the bundle automatically. Whatever genuinely can't be found is listed clearly **before anything is written**, so you can choose to continue (and relink those later in Live) or cancel.
 
 ### 🎛️ How to use it
 
-**GUI** — flip the **Collect** switch on (top-left panel), optionally add one or more **Backup search locations** (Browse or paste, up to 3), and hit **Run**. The pipeline options grey out; Collect takes over for that run.
+**GUI** — flip the **Collect** switch on (top-left panel), optionally add one or more **Backup search locations** (Browse or paste — as many as you like), and hit **Run**. The pipeline options grey out; Collect takes over for that run.
 
 **Terminal** — set `enabled = true` in the `[COLLECT]` section of `config.ini`, then run as usual. Every option is documented under [🔧 Configuration → `[COLLECT]`](#collect--collect-mode).
 

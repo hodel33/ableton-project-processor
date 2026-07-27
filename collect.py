@@ -74,7 +74,6 @@ TERM_W       = 12   # label pad; widest label is 'M4L devices' (11)
 # sweep is never starved by the guesses. Both scans are Stop-interruptible regardless.
 AUTO_TIER_BUDGET    = 200_000     # shared file cap across the automatic tiers (1–4)
 BACKUP_SEARCH_LIMIT = 1_000_000   # file cap for EACH backup_search_location (Tier 5); 0 = unlimited
-MAX_BACKUP_LOCATIONS = 3          # how many backup folders the user may add (Tier 5)
 
 # ═════════════════════════════════════════════════════════════
 # LOADING
@@ -1255,12 +1254,11 @@ def load_collect_settings(config) -> dict:
     versions = raw('versions') or '1'
     if versions not in VERSION_CHOICES:
         versions = '1'
-    # Up to MAX_BACKUP_LOCATIONS folders, stored pipe-delimited in the one key (a lone path with
-    # no '|' still parses as a single location, so old configs keep working). '|' is illegal in
-    # Windows paths and vanishingly rare on macOS, so it's a safe separator.
+    # Any number of folders, stored pipe-delimited in the one key (a lone path with no '|' still
+    # parses as a single location, so old configs keep working). '|' is illegal in Windows paths
+    # and vanishingly rare on macOS, so it's a safe separator.
     backup_roots = [Path(p) for p in
-                    (s.strip() for s in raw('backup_search_location').split('|'))
-                    if p][:MAX_BACKUP_LOCATIONS]
+                    (s.strip() for s in raw('backup_search_location').split('|')) if p]
 
     return {
         'versions':      versions,
