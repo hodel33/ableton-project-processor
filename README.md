@@ -81,6 +81,23 @@ I've always loved the magic of automation — that feeling when you kick off one
 
 <br>
 
+## 🕰️ Older projects (before Live 11)
+
+This tool reads the **Live 11 & 12** project format. Ableton rewrote how a `.als` stores samples, automation and colors when the new File Manager arrived in Live 11, so anything saved by **Live 10 or older uses a different internal layout** the tool can't read safely.
+
+Rather than quietly mangling those files, it **detects the version and skips them** — in both Collect and Processing — and tells you which ones and why. In the GUI they're flagged in red in the file list; in the terminal they're listed with a short note.
+
+**The fix is simple: let Ableton upgrade them first.** Open an old set in Live 11 or 12 and hit **Save** — that runs Ableton's own format migration properly (something no external tool can reliably reproduce). Then run this app on the re-saved version.
+
+**Got a whole backlog?** You can automate the open → save → close loop so Ableton converts a folder of old sets unattended. These drive the real Ableton app (so the migration is genuine), and are community tools — handy, but expect some fiddling:
+
+- **macOS** — [Keyboard Maestro](https://forum.keyboardmaestro.com/t/ableton-want-to-open-and-save-all-files-to-new-different-location/37911) macro, or the [Automator + AppleScript batch script](https://github.com/pje/Ableton-Live-Batch-Extract-Project-And-Collect-All-And-Save)
+- **Windows** — an [AutoHotkey](https://github.com/jotacoro/macros-for-live/blob/main/AutoHotkey/ableton/autosave-project.ahk) script doing open → `Ctrl+S` → close
+
+> 💡 Once they're re-saved in Live 11/12, they collect and process like any other project.
+
+<br>
+
 ## ⚙️ Installation
 
 1. 🐍 **Install Python 3.11+**

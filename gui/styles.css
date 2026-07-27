@@ -1125,6 +1125,26 @@ html, body {
   border-radius: 50%;
 }
 
+/* Older unsupported sets — flagged in the app's RED/error color (not the brand orange, which
+   reads as decorative): these can't be processed or collected. Kept subtle so the folder +
+   filename stay fully legible — just a red dot and a version pill, with a faint red border.
+   The run refuses them (als_core.MIN_SUPPORTED_LIVE); this makes that visible before Run. */
+.files-bar .file-chip.unsupported { border-color: rgba(255, 60, 85, 0.35); }
+.files-bar .file-chip.unsupported::before { background: var(--crimson); }
+.files-bar .file-chip .ver-badge {
+  margin-left: 3px;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 60, 85, 0.5);
+  border-radius: 9px;
+  color: #ff8f9e;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 15px;
+}
+.als-count .unsupported-note { color: #ff8f9e; font-weight: 500; }
+
 /* ═══════════════════════════════════════════════════════════
    TOAST
    ═══════════════════════════════════════════════════════════ */

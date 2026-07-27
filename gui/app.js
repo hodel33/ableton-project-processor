@@ -247,13 +247,27 @@ function renderProjectRoot() {
 
 function renderAlsCount() {
   const target = $('#alsCount');
+  target.textContent = '';
   const n = state.als_files.length;
   if (n === 0) {
     target.textContent = 'No .als files found one folder below.';
     target.classList.remove('has-files');
-  } else {
-    target.textContent = `${n} .als project${n === 1 ? '' : 's'} detected.`;
-    target.classList.add('has-files');
+    return;
+  }
+  target.classList.add('has-files');
+  target.appendChild(document.createTextNode(
+    `${n} .als project${n === 1 ? '' : 's'} detected.`));
+  // Older sets can't be processed or collected — call out how many, in amber, so the count
+  // isn't misleadingly all-clear. Names only the versions actually present (never a guessed
+  // range); the per-file badges below say exactly which.
+  const badFiles = state.als_files.filter(f => f.unsupported);
+  if (badFiles.length) {
+    const vs = [...new Set(badFiles.map(f => f.live))].sort((a, b) => a - b);
+    const vtxt = vs.length === 1
+      ? `Live ${vs[0]}`
+      : `Live ${vs.slice(0, -1).join(', ')} & ${vs[vs.length - 1]}`;
+    target.appendChild(el('span', { class: 'unsupported-note',
+      text: `  ${badFiles.length} unsupported (${vtxt})` }));
   }
 }
 
@@ -261,10 +275,18 @@ function renderFilesBar() {
   const bar = $('#filesBar');
   bar.textContent = '';
   for (const f of state.als_files) {
-    const chip = el('span', { class: 'file-chip', title: f.path },
+    const bad = !!f.unsupported;
+    const chip = el('span', {
+        class: 'file-chip' + (bad ? ' unsupported' : ''),
+        title: bad
+          ? `${f.path}\nSaved by Ableton Live ${f.live} — this tool supports Live 11 & 12 only.`
+            + `\nOpen and re-save it in Live 11+ to include it.`
+          : f.path
+      },
       el('span', { class: 'folder', text: f.folder }),
       el('span', { class: 'sep', text: '/' }),
-      f.name
+      f.name,
+      bad ? el('span', { class: 'ver-badge', text: `Live ${f.live}` }) : null
     );
     bar.appendChild(chip);
   }
@@ -357,7 +379,7 @@ function renderCollect() {
   const backupInput = el('input', {
     type: 'text',
     value: state.collect.backup_search_location || '',
-    placeholder: '(optional) e.g. D:/@Producing/Samples',
+    placeholder: '(optional) e.g. C:/Samples',
     spellcheck: 'false',
     oninput: () => { state.collect.backup_search_location = backupInput.value; markDirty(); },
   });

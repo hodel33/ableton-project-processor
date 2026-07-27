@@ -22,7 +22,8 @@ from pathlib import Path
 from datetime import datetime
 from xml.sax.saxutils import escape, unescape
 
-from als_core import find_blocks, extract_device_name, SKIP_DIRS
+from als_core import (find_blocks, extract_device_name, SKIP_DIRS,
+                      read_als_header, detect_live_version, MIN_SUPPORTED_LIVE)
 
 
 # ── .als reference (decoder key, not used directly) ───────────────────────────
@@ -714,6 +715,37 @@ def find_collect_als(target: Path) -> list:
                   and not f.stem.endswith(('_collected', '_processed')))
 
 
+def _fmt_versions(skipped: list) -> str:
+    """The distinct Live versions actually present in a skipped list, for the notice —
+    '9' / '9 & 10' / '8, 9 & 10'. Only versions really found are named (never a guessed range)."""
+    vs = sorted({v for _f, v in skipped})
+    return str(vs[0]) if len(vs) == 1 else ', '.join(map(str, vs[:-1])) + f' & {vs[-1]}'
+
+
+def split_supported_units(units: list) -> tuple[list, list]:
+    """Partition collect units by Live version. Live 9/10 sets store sample references in a
+    different <FileRef> schema this tool can't read (see als_core.MIN_SUPPORTED_LIVE), so
+    they're pulled out here to be REFUSED with a clear message rather than silently misread
+    as "everything is missing". Reads only each .als header, not the whole (often huge) set.
+
+    Returns (supported_units, skipped) where skipped is [(als_path, live_version), ...].
+    A unit that loses only some of its versions keeps the rest; one that loses all of them
+    drops out entirely. A version we can't read off the header is left in (proceeds).
+    """
+    supported, skipped = [], []
+    for proot, is_real, files in units:
+        keep = []
+        for f in files:
+            v = detect_live_version(read_als_header(f))
+            if v is not None and v < MIN_SUPPORTED_LIVE:
+                skipped.append((f, v))
+            else:
+                keep.append(f)
+        if keep:
+            supported.append((proot, is_real, keep))
+    return supported, skipped
+
+
 def group_collect_targets(als_files: list, versions: str) -> list:
     """
     Group discovered .als files into collect units → [(project_root, is_real, [als...])].
@@ -1258,8 +1290,24 @@ def run_collect(root: Path, config, *, on_confirm_start=None, on_confirm_missing
                                     boxes, matching the processing run's console look."""
     cfg   = load_collect_settings(config)
     units = group_collect_targets(find_collect_als(root), cfg['versions'])
+
+    # Version guard — Live 9/10 sets use a different <FileRef> schema this tool can't read.
+    # Refuse them up front (printed with the Found line below) instead of misreading every
+    # sample as "missing". The skipped list is surfaced later so it sits with the run summary.
+    units, skipped_old = split_supported_units(units)
+
     if not units:
-        print(f"\nNo .als files to collect under: {root}\n")
+        if skipped_old:
+            n = len(skipped_old)
+            print(f"\n  ⚠  All {n} .als file(s) here were saved by Ableton Live {_fmt_versions(skipped_old)} "
+                  f"— this tool supports Live {MIN_SUPPORTED_LIVE} & 12 only. Nothing to collect:")
+            for f, v in skipped_old:
+                print(f"        {show_path(f, root)}  (Live {v})")
+            print(f"      Open & re-save {'them' if n != 1 else 'it'} in Live {MIN_SUPPORTED_LIVE}+ "
+                  f"first, then re-run.")
+            print(f"      Note: a whole backlog? Batch it — see the README (\"Older projects\").\n")
+        else:
+            print(f"\nNo .als files to collect under: {root}\n")
         return
 
     n_loose = sum(1 for _r, real, _f in units if not real)
@@ -1293,6 +1341,18 @@ def run_collect(root: Path, config, *, on_confirm_start=None, on_confirm_missing
     if n_real:
         mix.append(f"{n_real} project folder{'s' if n_real != 1 else ''}")
     print(f"Found {len(units)} project(s) to collect — {', '.join(mix)}")
+
+    # Some sets were saved by Live 9/10 and pulled out above — name them so the count
+    # isn't silently short (and it's clear WHY they aren't in the run).
+    if skipped_old:
+        n = len(skipped_old)
+        print(f"\n  ⚠  Skipped {n} .als file(s) saved by Ableton Live {_fmt_versions(skipped_old)} "
+              f"— this tool supports Live {MIN_SUPPORTED_LIVE} & 12 only:")
+        for f, v in skipped_old:
+            print(f"        {show_path(f, root)}  (Live {v})")
+        print(f"      Open & re-save {'them' if n != 1 else 'it'} in Live {MIN_SUPPORTED_LIVE}+ "
+              f"first to include {'them' if n != 1 else 'it'}.")
+        print(f"      Note: a whole backlog? Batch it — see the README (\"Older projects\").")
 
     # A configured backup folder that doesn't exist (a typo, or an external drive that's
     # unplugged) is silently skipped by the search — flag it, or the missing-files prompt at

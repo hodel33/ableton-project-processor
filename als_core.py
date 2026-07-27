@@ -7,6 +7,7 @@ Imports nothing from the rest of the codebase, so every other module can build o
 """
 
 import re
+import gzip
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import unquote
@@ -16,6 +17,38 @@ from urllib.parse import unquote
 # only wastes time. 'Backup' is Live's own auto-backup folder; the rest are the
 # subfolders a Live Project uses for its collected content and project marker.
 SKIP_DIRS = ("Backup", "Ableton Project Info", "Samples", "Presets")
+
+
+# ═════════════════════════════════════════════════════════════
+# LIVE VERSION GUARD
+# ═════════════════════════════════════════════════════════════
+#
+# The whole tool — every SampleRef/MxPatchRef/plugin parser here — assumes the Live 11/12
+# .als schema. Live 9/10 store sample references in a completely different <FileRef> layout:
+# a <RelativePath> made of <RelativePathElement Dir="…"> elements, the filename in <Name>,
+# and the absolute path buried in a <Data> Mac-alias hex blob — no <Path>, no
+# <RelativePath Value="…">, no <OriginalFileSize>. Fed one of those, the ref parsers read
+# every field as empty and silently misreport the project (Collect flags EVERY sample as one
+# "missing" file). So anything older than MIN_SUPPORTED_LIVE is detected and refused up
+# front rather than mangled. A version we can't read off the header is left to proceed.
+MIN_SUPPORTED_LIVE = 11
+
+
+def read_als_header(als_path: Path) -> str:
+    """Decompress only the opening bytes of an .als — enough to hold the root <Ableton …> tag —
+    without inflating the whole (often huge) set just to read its version."""
+    try:
+        with gzip.open(als_path, "rb") as f:
+            return f.read(1024).decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def detect_live_version(xml_or_header: str) -> int | None:
+    """Major Ableton Live version, read off the Creator string in an .als header.
+    'Ableton Live 9.7.5' → 9, 'Ableton Live 12.4.3' → 12. None when it can't be determined."""
+    m = re.search(r'Creator="Ableton Live\s+(\d+)', xml_or_header)
+    return int(m.group(1)) if m else None
 
 
 # ═════════════════════════════════════════════════════════════

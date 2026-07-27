@@ -17,7 +17,8 @@ from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 
-from als_core import Context, extract_device_name, find_blocks
+from als_core import (Context, extract_device_name, find_blocks,
+                      detect_live_version, MIN_SUPPORTED_LIVE)
 
 
 # ── Report layout widths ──────────────────────────────────────────────────────
@@ -1730,6 +1731,15 @@ def run_pipeline(als_path, context: Context, pipeline: list):
 
     with gzip.open(als_path, "rb") as f:
         original = f.read().decode("utf-8")
+
+    # Live-version guard: a Live 9/10 set uses a different XML schema this tool can't read,
+    # so refuse it here rather than silently corrupt it. (See als_core.MIN_SUPPORTED_LIVE.)
+    version = detect_live_version(original)
+    if version is not None and version < MIN_SUPPORTED_LIVE:
+        print(f"\n  ⚠  Skipped — saved by Ableton Live {version}. This tool supports "
+              f"Live {MIN_SUPPORTED_LIVE} and 12 only.")
+        print(f"      Open and re-save it in Live {MIN_SUPPORTED_LIVE}+ first, then run again.")
+        return
 
     # ## XML VALIDATION of original file // DEBUG
     # original_errors = validate_xml(original)

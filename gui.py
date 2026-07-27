@@ -524,10 +524,16 @@ class Api:
                      else als_core.find_als_files(self._project_root))
         except Exception:
             return []
-        return [
-            {"name": f.name, "folder": f.parent.name, "path": str(f)}
-            for f in files
-        ]
+        out = []
+        for f in files:
+            # Flag Live 9/10 sets here so the list can badge them — the run itself refuses
+            # them either way (als_core.MIN_SUPPORTED_LIVE), but showing it up front beats
+            # discovering it only in the console. Reads just the .als header (first 1 KB).
+            v = als_core.detect_live_version(als_core.read_als_header(f))
+            out.append({"name": f.name, "folder": f.parent.name, "path": str(f),
+                        "live": v,
+                        "unsupported": v is not None and v < als_core.MIN_SUPPORTED_LIVE})
+        return out
 
     # ── Config ───────────────────────────────────────────────
     def save_config(self, payload: dict) -> dict:
