@@ -16,5 +16,8 @@ dist/
 .env
 *.log
 
+# Debug (local dev tools)
+debug.py
+
 # macOS
 .DS_Store

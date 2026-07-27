@@ -27,7 +27,7 @@
         </div>
         <div class="brand-text">
           <h1>Ableton Project Processor</h1>
-          <p class="tag">Your <code>.als</code> project cleaner &amp; organizer</p>
+          <p class="tag">Your <code>.als</code> project collector &amp; organizer</p>
         </div>
       </div>
 
@@ -53,7 +53,7 @@
         </button>
         <button class="btn btn-primary" id="runBtn" title="Start processing">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-          Run
+          <span id="runLabel">Process</span>
         </button>
       </div>
     </header>
@@ -64,11 +64,28 @@
       <!-- ─── LEFT: Config panels ─── -->
       <section class="col config-col">
 
+        <!-- COLLECT (a mode — replaces the pipeline while enabled) -->
+        <article class="panel" id="panel-collect">
+          <header class="panel-head">
+            <div>
+              <h2>Collect</h2>
+              <p>Bundle each project into a portable copy with its samples, Max&nbsp;for&nbsp;Live devices &amp; a requirements report. <em>Replaces the processing pipeline while on.</em></p>
+            </div>
+            <div class="panel-tools">
+              <div class="head-switch" id="collectEnable" title="Toggle Collect mode" role="switch" tabindex="0">
+                <span class="head-switch-label">Off</span>
+                <div class="switch"></div>
+              </div>
+            </div>
+          </header>
+          <div class="collect-body" id="collectBody"></div>
+        </article>
+
         <!-- PIPELINE -->
         <article class="panel" id="panel-pipeline">
           <header class="panel-head">
             <div>
-              <h2>Pipeline</h2>
+              <h2>Process</h2>
               <p>Toggle each processing step. Runs in fixed deterministic order.</p>
             </div>
             <div class="panel-tools">
@@ -140,8 +157,8 @@
           </header>
           <div class="console" id="console">
             <div class="console-empty">
-              <p>Pick a folder, toggle your steps and hit <strong>Run</strong>.</p>
-              <p class="muted small">Every run creates a new <code>_processed.als</code> — the original is never touched.</p>
+              <p>Pick a folder, toggle your processing steps and hit <strong>Process</strong>.</p>
+              <p class="muted small">Every run creates a new <code>_processed.als</code> — your original <code>.als</code> is never touched.</p>
             </div>
           </div>
           <footer class="files-bar" id="filesBar"></footer>
@@ -149,6 +166,19 @@
       </aside>
 
     </main>
+
+    <!-- ════════ MODAL — missing files (spotlight: dims controls, console stays lit) ════════ -->
+    <div class="modal-scrim" id="missingScrim"></div>
+    <div class="modal-layer" id="missingModal">
+      <div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="missingTitle">
+        <div class="modal-title" id="missingTitle"><span class="modal-icon">⚠</span> Missing files</div>
+        <div class="modal-body" id="missingBody"></div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="missingCancel">Cancel</button>
+          <button class="btn btn-primary" id="missingContinue">Collect anyway</button>
+        </div>
+      </div>
+    </div>
 
     <!-- ════════ TOAST ════════ -->
     <div class="toast" id="toast"></div>

@@ -11,9 +11,9 @@
   --bg-1:        #111115;
   --bg-2:        #16161b;
   --bg-3:        #1c1c22;
-  --bg-panel:    rgba(24, 24, 30, 0.72);
-  --stroke:      rgba(255, 255, 255, 0.06);
-  --stroke-hi:   rgba(255, 255, 255, 0.12);
+  --bg-panel:    #17171c;
+  --stroke:      rgba(255, 255, 255, 0.08);
+  --stroke-hi:   rgba(255, 255, 255, 0.13);
   --stroke-soft: rgba(255, 255, 255, 0.03);
 
   /* Ink */
@@ -23,11 +23,11 @@
   --ink-3:       #5b5b66;
   --ink-4:       #3a3a44;
 
-  /* Accent (Ableton-inspired amber → red) */
-  --amber:       #e68a1a;
-  --amber-hi:    #fea741;
-  --amber-dim:   rgba(254, 167, 65, 0.14);
-  --amber-glow:  rgba(254, 167, 65, 0.35);
+  /* Accent — one muted amber, used sparingly (flat, no glow) */
+  --amber:       #c47a2e;
+  --amber-hi:    #d68a3c;
+  --amber-dim:   rgba(214, 138, 60, 0.13);
+  --amber-glow:  rgba(214, 138, 60, 0.30);
   --crimson:     #ff3c55;
   --mint:        #6ee7b7;
   --mint-dim:    rgba(110, 231, 183, 0.14);
@@ -61,29 +61,6 @@ html, body {
   overflow: hidden;
 }
 
-body::before {
-  /* ambient glow */
-  content: '';
-  position: fixed; inset: 0;
-  background:
-    radial-gradient(1200px 800px at 8% -10%, rgba(255, 122, 26, 0.10), transparent 60%),
-    radial-gradient(900px 700px at 95% 110%, rgba(159, 124, 255, 0.08), transparent 55%),
-    radial-gradient(600px 400px at 50% 50%, rgba(110, 231, 183, 0.03), transparent 60%);
-  pointer-events: none;
-  z-index: 0;
-}
-
-body::after {
-  /* grain */
-  content: '';
-  position: fixed; inset: 0;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.5  0 0 0 0 0.5  0 0 0 0 0.5  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-  opacity: 0.55;
-  pointer-events: none;
-  z-index: 0;
-  mix-blend-mode: overlay;
-}
-
 .app {
   position: relative;
   z-index: 1;
@@ -104,9 +81,7 @@ body::after {
   gap: 28px;
   padding: 18px 28px 18px 24px;
   border-bottom: 1px solid var(--stroke);
-  background: linear-gradient(180deg, rgba(22,22,27,0.95), rgba(16,16,20,0.85));
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
+  background: var(--bg-1);
   z-index: 3;
 }
 
@@ -245,29 +220,22 @@ body::after {
   border-color: var(--amber);
   background: var(--amber-dim);
 }
-.btn-ghost.dirty::after {
-  content: ' •';
-  color: var(--amber-hi);
-}
 
 .btn-primary {
-  background: linear-gradient(180deg, var(--amber-hi), var(--amber));
-  color: #1a0e04;
-  border-color: rgba(255, 210, 160, 0.4);
+  background: var(--amber-hi);
+  color: #17110a;
+  border-color: transparent;
   font-weight: 600;
   padding: 8px 18px;
-  box-shadow: 0 4px 14px -2px var(--amber-glow),
-              inset 0 1px 0 rgba(255,255,255,0.3);
 }
 .btn-primary:hover {
-  background: linear-gradient(180deg, #ffc275, var(--amber-hi));
-  color: #1a0e04;
-  border-color: rgba(255, 210, 160, 0.6);
+  background: #e29a4d;
+  color: #17110a;
+  border-color: transparent;
 }
 .btn-primary:disabled {
   opacity: 0.45; cursor: not-allowed;
-  box-shadow: none;
-  background: linear-gradient(180deg, #544638, #3e342a);
+  background: var(--bg-3);
   color: var(--ink-2);
 }
 
@@ -347,9 +315,6 @@ body::after {
   background: var(--bg-panel);
   border: 1px solid var(--stroke);
   border-radius: var(--radius);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: var(--shadow-md);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -367,7 +332,6 @@ body::after {
   justify-content: space-between;
   gap: 12px 16px;
   border-bottom: 1px solid var(--stroke);
-  background: linear-gradient(180deg, rgba(255,255,255,0.015), transparent);
 }
 .panel-head h2 {
   margin: 0;
@@ -402,9 +366,9 @@ body::after {
   text-transform: uppercase;
   padding: 4px 8px;
   border-radius: 20px;
-  background: var(--amber-dim);
-  color: var(--amber-hi);
-  border: 1px solid rgba(255, 122, 26, 0.2);
+  background: transparent;
+  color: var(--ink-2);
+  border: 1px solid var(--stroke);
 }
 .badge.zero {
   background: transparent;
@@ -438,6 +402,22 @@ body::after {
   box-shadow: inset 0 0 0 1px var(--stroke-hi);
 }
 
+/* Collect's "Versions per project" — stretch the control full width so the four choices
+   fill the row evenly (a balanced segmented control) instead of hugging the left. */
+#panel-collect .seg { display: flex; }
+#panel-collect .seg-btn { flex: 1; text-align: center; }
+
+/* Collect toggles reuse the pipeline .step layout, but they aren't ordered steps — drop the
+   empty number gutter so their labels line up with the panel's other fields (and so the
+   absence of numbers reads as "independent options," not "a numbered sequence"). */
+#panel-collect .step { grid-template-columns: 1fr auto; }
+#panel-collect .step .step-num { display: none; }
+
+/* Keep the toggle group tight (8px, like Processing) but give the two fields around it
+   (Versions above, Backup below) extra breathing room — ~14px, matching the Settings panel. */
+#panel-collect .collect-body > .field:first-child { margin-bottom: 6px; }
+#panel-collect .collect-body > .field:last-child  { margin-top: 6px; }
+
 /* ═══════════════════════════════════════════════════════════
    PIPELINE STEPS
    ═══════════════════════════════════════════════════════════ */
@@ -468,16 +448,8 @@ body::after {
   background: var(--bg-2);
 }
 .step.on {
-  border-color: rgba(255, 122, 26, 0.35);
-  background: linear-gradient(180deg, rgba(255, 122, 26, 0.06), rgba(255, 122, 26, 0.02));
-}
-.step.on::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 3px;
-  background: linear-gradient(180deg, var(--amber-hi), var(--amber));
-  border-radius: 0 2px 2px 0;
+  border-color: var(--stroke-hi);
+  background: var(--bg-2);
 }
 
 .step-num {
@@ -487,7 +459,7 @@ body::after {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
-.step.on .step-num { color: var(--amber-hi); }
+.step.on .step-num { color: var(--ink-2); }
 
 .step-body { min-width: 0; }
 .step-label {
@@ -530,12 +502,91 @@ body::after {
   box-shadow: 0 1px 3px rgba(0,0,0,0.4);
 }
 .step.on .switch {
-  background: linear-gradient(90deg, var(--amber), var(--amber-hi));
-  border-color: rgba(255, 210, 160, 0.4);
+  background: var(--amber-hi);
+  border-color: transparent;
 }
 .step.on .switch::after {
   transform: translateX(14px);
   background: #fff;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   COLLECT
+   ═══════════════════════════════════════════════════════════ */
+
+.collect-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;                /* match the Processing steps' spacing */
+  padding: 16px 14px;
+}
+
+/* Collect mode off → collapse the panel to just its header (the head's own bottom border
+   becomes the panel's bottom edge), leaving only the enable toggle + description visible. */
+.panel#panel-collect.collapsed .collect-body { display: none; }
+.panel#panel-collect.collapsed .panel-head { border-bottom: none; }
+
+/* Header enable toggle — reuses the .switch visual, on/off via .head-switch.on */
+.head-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px;
+  border-radius: 20px;
+  outline: none;
+}
+.head-switch:focus-visible { box-shadow: 0 0 0 3px var(--amber-dim); }
+.head-switch-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  transition: color 0.2s ease-out;
+}
+.head-switch.on .head-switch-label { color: var(--amber-hi); }
+.head-switch.on .switch {
+  background: var(--amber-hi);
+  border-color: transparent;
+}
+.head-switch.on .switch::after {
+  transform: translateX(14px);
+  background: #fff;
+}
+
+/* Backup path — text input + Browse button on one row */
+.backup-row {
+  display: flex;
+  gap: 8px;
+}
+.backup-row input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-1);
+  border: 1px solid var(--stroke);
+  color: var(--ink-0);
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.14s, box-shadow 0.14s;
+}
+.backup-row input:hover { border-color: var(--stroke-hi); }
+.backup-row input:focus {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px var(--amber-dim);
+}
+.backup-row .btn-mini { flex-shrink: 0; }
+
+/* A panel greyed out because the other mode owns the run (Collect ⇄ Pipeline) */
+.panel.disabled {
+  opacity: 0.42;
+  pointer-events: none;
+  filter: saturate(0.6);
+  transition: opacity 0.18s ease-out, filter 0.18s ease-out;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -680,7 +731,7 @@ body::after {
 }
 .prefix.hidden { display: none; }
 .prefix[data-cat="group"] {
-  background: linear-gradient(180deg, rgba(255,255,255,0.015), transparent), var(--bg-1);
+  background: var(--bg-1);
   border-left: 2px solid transparent;
   border-left-color: rgba(255,255,255,0.1);
 }
@@ -906,7 +957,6 @@ body::after {
 }
 .status-pill.running .pulse {
   background: var(--amber-hi);
-  box-shadow: 0 0 8px var(--amber-hi);
   animation: pulse 1.2s ease-in-out infinite;
 }
 .status-pill.done {
@@ -936,10 +986,7 @@ body::after {
   font-size: 12px;
   line-height: 1.55;
   color: var(--ink-1);
-  background:
-    linear-gradient(180deg, rgba(0,0,0,0.2), transparent 30%),
-    radial-gradient(800px 400px at 50% 0%, rgba(255,122,26,0.03), transparent 60%),
-    var(--bg-0);
+  background: var(--bg-0);
   scrollbar-gutter: stable;
 }
 .console-line {
@@ -956,12 +1003,20 @@ body::after {
   font-weight: 600;
   letter-spacing: 0.02em;
 }
+/* Heading already wrapped in ═ bars (e.g. the summary boxes): no dashed underline — the bar
+   below it is the divider. Keep the amber color/weight, drop the border + its extra spacing. */
+.console-line.l-head.boxed {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin: 4px 0;
+}
 .console-line.l-step-on  { color: var(--mint); }
 .console-line.l-step-off { color: var(--ink-3); }
 .console-line.l-warn     { color: #ffcd66; }
 .console-line.l-error    { color: #ff8f9e; }
 .console-line.l-success  { color: var(--mint); font-weight: 600; }
 .console-line.l-dim      { color: var(--ink-3); }
+.console-line.l-tip      { color: var(--amber-hi); font-weight: 500; }
 .console-line.l-rule     { color: var(--ink-4); letter-spacing: 0; }
 
 .console-rule {
@@ -969,6 +1024,42 @@ body::after {
   margin: 4px 2px;
   border-top: 1px solid var(--ink-4);
 }
+
+/* Copy-progress bar (collect) — updates in place, removed when the copy finishes */
+.copy-progress { margin: 20px 2px 8px; }   /* ~one blank line above, like the terminal bar */
+.copy-progress .cp-track {
+  height: 8px;
+  background: var(--bg-3);
+  border: 1px solid var(--stroke);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.copy-progress .cp-fill {
+  height: 100%;
+  width: 0;
+  background: var(--amber-hi);
+  transition: width 0.15s ease-out;
+}
+.copy-progress .cp-label {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.copy-progress .cp-stats {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Search status has no track above the label — sit it flush. */
+.copy-progress.search .cp-label { margin-top: 0; }
 .console-rule.heavy { border-top-width: 2px; border-top-color: var(--ink-3); }
 .console-rule.light { border-top-style: dashed; }
 
@@ -1063,6 +1154,80 @@ body::after {
 }
 .toast.success { border-color: rgba(110,231,183,0.4); color: var(--mint); }
 .toast.error   { border-color: rgba(255,60,85,0.4);  color: #ff8f9e; }
+
+/* ═══════════════════════════════════════════════════════════
+   MODAL — in-app confirm (themed replacement for the native OS dialog)
+   ═══════════════════════════════════════════════════════════ */
+/* Scrim dims + blocks everything behind it… */
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease-out;
+  z-index: 20;
+}
+.modal-scrim.show { opacity: 1; pointer-events: auto; }
+
+/* …except the console: while the modal is up we lift the console column above the scrim,
+   so it stays fully lit AND scrollable/clickable (the controls behind stay dimmed & inert). */
+.spotlight .console-col { position: relative; z-index: 25; }
+
+/* Centering layer for the card — transparent and click-through; only the card is interactive,
+   and it sits above the lifted console so it's never hidden behind it. */
+.modal-layer {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.16s ease-out;
+  z-index: 30;
+}
+.modal-layer.show { opacity: 1; }
+.modal-card {
+  width: min(440px, calc(100vw - 48px));
+  padding: 22px 24px 20px;
+  background: var(--bg-panel);
+  border: 1px solid var(--stroke-hi);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;             /* only clickable while shown (below) */
+  transform: translateY(8px) scale(0.985);
+  transition: transform 0.16s ease-out;
+}
+.modal-layer.show .modal-card { pointer-events: auto; transform: none; }
+.modal-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-0);
+  cursor: grab;                     /* drag the card by its title bar */
+  user-select: none;
+}
+.modal-title:active { cursor: grabbing; }
+.modal-icon { color: var(--amber-hi); font-size: 16px; }
+.modal-body {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-1);
+}
+.modal-body .count { color: var(--amber-hi); font-weight: 600; }
+.modal-body .hint  { margin-top: 8px; color: var(--ink-3); }
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
 
 /* ═══════════════════════════════════════════════════════════
    RESPONSIVE

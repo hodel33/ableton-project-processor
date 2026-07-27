@@ -64,6 +64,7 @@ const state = {
   pipeline: [],       // [{id, label, description, enabled}]
   settings: {},       // {key: string}
   prefixes: [],       // [{prefix, sort, color, category, comment}]
+  collect: {},        // {enabled, versions, collect_ableton_packs, collect_m4l_devices, write_report, backup_search_location}
   als_files: [],      // [{name, folder, path}]
   project_root: '',
   filter: 'all',
@@ -118,6 +119,87 @@ async function api(method, ...args) {
   return window.pywebview.api[method](...args);
 }
 
+// Themed in-app confirm for still-missing files. Python (the collect worker) shows this via
+// run_js("showMissingModal(n)") and blocks on a threading.Event; whichever button the user
+// clicks calls resolve_missing(true/false), which releases the worker. Count only — the exact
+// files and where each was expected are already printed in full to the console just above.
+function showMissingModal(count) {
+  const modal = $('#missingModal');    // centering layer
+  const scrim = $('#missingScrim');
+  const appEl = document.getElementById('app');
+  const card  = modal.querySelector('.modal-card');
+  const body  = $('#missingBody');
+  const n = Number(count) || 0;
+  body.textContent = '';
+  body.append(
+    el('div', {},
+      el('span', { class: 'count', text: String(n) }),
+      ` file${n === 1 ? '' : 's'} could not be found and will stay OFFLINE.`),
+    el('div', { class: 'hint' },
+      'The exact files (and where each was expected) are listed in the console. '
+      + 'Cancel to abort — set a backup search location and re-run.')
+  );
+
+  // Windows puts the affirmative button on the LEFT, macOS/Linux on the RIGHT. HTML order is
+  // [Cancel][Collect anyway] (macOS); on Windows swap via `order` (group stays bottom-right).
+  const win = /Windows/i.test(navigator.userAgent);
+  $('#missingContinue').style.order = win ? '1' : '';
+  $('#missingCancel').style.order   = win ? '2' : '';
+
+  // Draggable by its title bar — nudge it off the console on any screen size / window.
+  card.style.transform = '';                        // reset to centered on each show
+  const stopDrag = makeDraggable(card, $('#missingTitle'));
+
+  const finish = (ok) => {
+    document.removeEventListener('keydown', onKey);
+    stopDrag();
+    modal.classList.remove('show');
+    scrim.classList.remove('show');
+    appEl.classList.remove('spotlight');
+    api('resolve_missing', ok);
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') finish(false);
+    else if (e.key === 'Enter') finish(true);
+  };
+  $('#missingContinue').onclick = () => finish(true);
+  $('#missingCancel').onclick   = () => finish(false);
+  document.addEventListener('keydown', onKey);
+
+  appEl.classList.add('spotlight');   // lift the console above the scrim
+  scrim.classList.add('show');
+  modal.classList.add('show');
+  $('#missingContinue').focus();
+}
+
+// Drag `card` by `handle`; returns a cleanup fn. Offset accumulates within a single showing.
+function makeDraggable(card, handle) {
+  let sx = 0, sy = 0, ox = 0, oy = 0, dragging = false;
+  const down = (e) => {
+    dragging = true; sx = e.clientX; sy = e.clientY;
+    card.style.transition = 'none';
+    e.preventDefault();
+  };
+  const move = (e) => {
+    if (!dragging) return;
+    card.style.transform = `translate(${ox + e.clientX - sx}px, ${oy + e.clientY - sy}px)`;
+  };
+  const up = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    ox += e.clientX - sx; oy += e.clientY - sy;
+    card.style.transition = '';
+  };
+  handle.addEventListener('mousedown', down);
+  document.addEventListener('mousemove', move);
+  document.addEventListener('mouseup', up);
+  return () => {
+    handle.removeEventListener('mousedown', down);
+    document.removeEventListener('mousemove', move);
+    document.removeEventListener('mouseup', up);
+  };
+}
+
 // ════════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════════
@@ -134,6 +216,7 @@ async function init() {
   state.pipeline     = initial.pipeline     || [];
   state.settings     = initial.settings     || {};
   state.prefixes     = initial.prefixes     || [];
+  state.collect      = initial.collect      || {};
   state.als_files    = initial.als_files    || [];
   state.project_root = initial.project_root || '';
 
@@ -145,6 +228,7 @@ function renderAll() {
   renderProjectRoot();
   renderAlsCount();
   renderFilesBar();
+  renderCollect();
   renderPipeline();
   renderSettings();
   renderPrefixes();
@@ -216,6 +300,7 @@ function toggleStep(id) {
   if (!step) return;
   step.enabled = !step.enabled;
   renderPipeline();
+  if (id === 'sort_color_tracks') updatePrefixesLock();   // gates the Track Prefixes panel
   markDirty();
 }
 
@@ -224,6 +309,126 @@ function updateActiveCount() {
   const badge = $('#activeCount');
   badge.textContent = `${n} active`;
   badge.classList.toggle('zero', n === 0);
+}
+
+// ════════════════════════════════════════════════════════════
+// RENDER — COLLECT  (a mode: when enabled it replaces the pipeline)
+// ════════════════════════════════════════════════════════════
+
+const COLLECT_VERSIONS = ['1', '3', '5', 'all'];
+
+// One toggle row, reusing the pipeline .step look (empty num cell keeps the grid).
+function collectToggleRow(key, label, desc) {
+  const on = !!state.collect[key];
+  return el('div', {
+      class: 'step' + (on ? ' on' : ''),
+      onclick: () => { state.collect[key] = !state.collect[key]; renderCollect(); markDirty(); },
+    },
+    el('div', { class: 'step-num' }),
+    el('div', { class: 'step-body' },
+      el('p', { class: 'step-label', text: label }),
+      el('p', { class: 'step-desc', text: desc, title: desc })
+    ),
+    el('div', { class: 'switch' })
+  );
+}
+
+function renderCollect() {
+  const enabled = !!state.collect.enabled;
+
+  // Header enable toggle
+  const head = $('#collectEnable');
+  head.classList.toggle('on', enabled);
+  head.querySelector('.head-switch-label').textContent = enabled ? 'On' : 'Off';
+
+  // Versions segmented control
+  const seg = el('div', { class: 'seg' });
+  const current = String(state.collect.versions || '1');
+  for (const v of COLLECT_VERSIONS) {
+    seg.appendChild(el('button', {
+      class: 'seg-btn' + (current === v ? ' active' : ''),
+      type: 'button',
+      text: v === 'all' ? 'All' : v,
+      onclick: () => { state.collect.versions = v; renderCollect(); markDirty(); },
+    }));
+  }
+
+  // Backup search location — text + native folder picker
+  const backupInput = el('input', {
+    type: 'text',
+    value: state.collect.backup_search_location || '',
+    placeholder: '(optional) e.g. D:/@Producing/Samples',
+    spellcheck: 'false',
+    oninput: () => { state.collect.backup_search_location = backupInput.value; markDirty(); },
+  });
+  const browseBtn = el('button', { class: 'btn-mini', type: 'button', text: 'Browse', onclick: pickBackupFolder });
+
+  const body = $('#collectBody');
+  body.textContent = '';
+  body.append(
+    el('div', { class: 'field' },
+      el('label', {}, 'Versions per project ', el('span', { class: 'hint', text: 'newest first, by last-saved date' })),
+      seg,
+      el('div', { class: 'field-note', text: 'Only applies to a saved Ableton Project (a folder). A standalone .als is always collected on its own.' })
+    ),
+    collectToggleRow('collect_ableton_packs', 'Include Ableton Pack content',
+      'Copy Ableton Core Library + Add-On Pack samples in, so the bundle needs no Ableton Packs installed elsewhere'),
+    collectToggleRow('collect_m4l_devices', 'Include Max for Live devices',
+      'Copy the .amxd devices into the bundle. Turn off if the target machine already has your M4L devices — the report lists them'),
+    collectToggleRow('write_report', 'Write requirements report',
+      'Add "@ Required Plugins & Packs.txt" listing external plugins, M4L devices & Ableton Packs the set needs'),
+    el('div', { class: 'field' },
+      el('label', {}, 'Backup search location ', el('span', { class: 'hint', text: 'optional fallback' })),
+      el('div', { class: 'backup-row' }, backupInput, browseBtn),
+      el('div', { class: 'field-note', text: 'Extra folder searched for still-missing samples (master library / external drive).' })
+    )
+  );
+
+  applyCollectMode();
+}
+
+// Collect and Process are mutually exclusive: enabling Collect greys the pipeline +
+// settings panels and flips the Process button so it's obvious which one fires.
+function applyCollectMode() {
+  const on = !!state.collect.enabled;
+
+  // When off, collapse the panel to just its header (down to the divider) — nothing below
+  // is relevant unless you're collecting, and it keeps the left column clean.
+  $('#panel-collect').classList.toggle('collapsed', !on);
+
+  $('#panel-pipeline').classList.toggle('disabled', on);
+  $('#panel-settings').classList.toggle('disabled', on);
+  updatePrefixesLock();
+
+  const label = $('#runLabel');
+  if (label) label.textContent = on ? 'Collect' : 'Process';
+  const runBtn = $('#runBtn');
+  if (runBtn) runBtn.title = on ? 'Start collecting' : 'Start processing';
+
+  renderConsoleEmpty();   // the idle console hint differs per mode
+}
+
+// Track Prefixes only matters when Sort & Recolor will actually run — so the panel is
+// usable ONLY when that step is enabled AND Collect mode is off (Collect skips the whole
+// pipeline). Disabled (greyed, like Pipeline/Settings) in every other case.
+function updatePrefixesLock() {
+  const sortOn = state.pipeline.some((s) => s.id === 'sort_color_tracks' && s.enabled);
+  $('#panel-prefixes').classList.toggle('disabled', !!state.collect.enabled || !sortOn);
+}
+
+function toggleCollectEnabled() {
+  state.collect.enabled = !state.collect.enabled;
+  renderCollect();
+  markDirty();
+  rescan(true);   // the visible file set differs by mode — refresh it silently
+}
+
+async function pickBackupFolder() {
+  const res = await api('pick_backup_folder');
+  if (!res || !res.ok) return;
+  state.collect.backup_search_location = res.path;
+  renderCollect();
+  markDirty();
 }
 
 // ════════════════════════════════════════════════════════════
@@ -647,10 +852,16 @@ function openPalettePicker(prefix) {
 
 function wireGlobalEvents() {
   $('#pickFolder').addEventListener('click', pickFolder);
-  $('#rescan').addEventListener('click', rescan);
+  $('#rescan').addEventListener('click', () => rescan());
   $('#saveConfig').addEventListener('click', () => saveConfig(true));
-  $('#runBtn').addEventListener('click', runPipeline);
+  $('#runBtn').addEventListener('click', runActive);
   $('#stopBtn').addEventListener('click', stopPipeline);
+
+  const collectToggle = $('#collectEnable');
+  collectToggle.addEventListener('click', toggleCollectEnabled);
+  collectToggle.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollectEnabled(); }
+  });
   $('#clearLog').addEventListener('click', clearConsole);
   $('#allOn').addEventListener('click', () => setAllSteps(true));
   $('#allOff').addEventListener('click', () => setAllSteps(false));
@@ -672,7 +883,7 @@ function wireGlobalEvents() {
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
-      runPipeline();
+      runActive();
     }
     if (e.key === 'Escape') {
       const picker = $('#palettePicker');
@@ -684,7 +895,7 @@ function wireGlobalEvents() {
 // ────────────────────────────────────────────────────────────
 
 async function pickFolder() {
-  const res = await api('pick_folder');
+  const res = await api('pick_folder', !!state.collect.enabled);
   if (!res || !res.ok) return;
   state.project_root = res.project_root;
   state.als_files = res.als_files;
@@ -693,18 +904,21 @@ async function pickFolder() {
   renderFilesBar();
 }
 
-async function rescan() {
-  const res = await api('rescan');
+// collect mode scans a different set (no _collected/_processed), so the list must be
+// re-fetched whenever the mode flips — `silent` skips the toast for that background refresh.
+async function rescan(silent) {
+  const res = await api('rescan', !!state.collect.enabled);
   if (!res || !res.ok) return;
   state.als_files = res.als_files;
   renderAlsCount();
   renderFilesBar();
-  toast(`Rescan: ${state.als_files.length} file(s) found`);
+  if (!silent) toast(`Rescan: ${state.als_files.length} file(s) found`);
 }
 
 function setAllSteps(on) {
   state.pipeline.forEach((s) => (s.enabled = on));
   renderPipeline();
+  updatePrefixesLock();   // All/None may flip Sort & Recolor, which gates Track Prefixes
   markDirty();
 }
 
@@ -731,6 +945,14 @@ async function saveConfig(explicit) {
     pipeline: state.pipeline.map((s) => ({ id: s.id, enabled: s.enabled })),
     settings: state.settings,
     prefixes: state.prefixes.map((p) => ({ prefix: p.prefix, sort: p.sort, color: p.color, comment: p.comment || '' })),
+    collect: {
+      enabled:                !!state.collect.enabled,
+      versions:               String(state.collect.versions || '1'),
+      collect_ableton_packs:  !!state.collect.collect_ableton_packs,
+      collect_m4l_devices:    !!state.collect.collect_m4l_devices,
+      write_report:           !!state.collect.write_report,
+      backup_search_location: state.collect.backup_search_location || '',
+    },
   };
   const res = await api('save_config', payload);
   if (!res || !res.ok) {
@@ -745,27 +967,32 @@ async function saveConfig(explicit) {
 // PIPELINE RUN + LOG STREAMING
 // ════════════════════════════════════════════════════════════
 
-async function runPipeline() {
+// Routes to whichever mode is active. Collect and Process are mutually exclusive —
+// the Process button label already reflects which one this will start.
+async function runActive() {
   if (state.running) return;
   if (state.dirty) {
     toast('You have unsaved changes — hit Save config first.', 'error');
     return;
   }
 
-  const res = await api('run_pipeline');
+  const collect = !!state.collect.enabled;
+  const res = await api(collect ? 'run_collect' : 'run_pipeline');
   if (!res || !res.ok) {
-    toast((res && res.error) || 'Could not start pipeline', 'error');
+    toast((res && res.error) || `Could not start ${collect ? 'collect' : 'process'}`, 'error');
     return;
   }
   clearConsole();
   setRunning(true);
-  setStatus('running', 'Running');
+  setStatus('running', collect ? 'Collecting' : 'Processing');
   pollLogsLoop();
 }
 
 async function stopPipeline() {
   await api('stop_pipeline');
-  toast('Stop requested — will halt after current file.');
+  toast(state.collect.enabled
+    ? 'Stop requested — will halt after current project.'
+    : 'Stop requested — will halt after current file.');
 }
 
 function pollLogsLoop() {
@@ -779,12 +1006,16 @@ function pollLogsLoop() {
       clearInterval(state.pollTimer);
       state.pollTimer = null;
       const tail = $('#console').innerText.slice(-500);
+      const mode = state.collect.enabled ? 'Collect' : 'Process';
       if (/Validation failed|crashed|Error:/i.test(tail)) {
         setStatus('error', 'Error');
-        toast('Pipeline finished with errors', 'error');
+        toast(`${mode} finished with errors`, 'error');
+      } else if (/Stopped —|Stop requested/i.test(tail)) {
+        setStatus('', 'Stopped');
+        toast(`${mode} stopped`);
       } else if (/All done|Saved processed/i.test(tail)) {
         setStatus('done', 'Done');
-        toast('Pipeline finished', 'success');
+        toast(`${mode} finished`, 'success');
       } else {
         setStatus('', 'Idle');
       }
@@ -821,12 +1052,114 @@ function classifyLine(raw) {
   if (/^\s*\[\+\]/.test(s)) return 'l-step-on';
   if (/^\s*⚠|Validation failed|Config error|Error:/i.test(s)) return 'l-error';
   if (/Warning|Note:/i.test(s)) return 'l-warn';
+  if (/^\s*Tip:/.test(s)) return 'l-tip';   // actionable guidance — make it stand out
   if (/Saved processed|All done|✓ All done|plugins list saved/i.test(s)) return 'l-success';
+  // A bare, non-indented title line — a collect project's folder name (which can't contain
+  // ':') or a report section title — gets the same heading style as a filename. The em-dash
+  // guard keeps sentence-y status lines ("Done — …", "Stop requested — …") out of it.
+  if (s && !/^\s/.test(s) && !s.includes(':') && !s.includes('—')) return 'l-head';
+  // Missing-files list: keep the filename bright & readable (default --ink-1); its
+  // "expected at:" path line below is long/secondary, so that stays dimmed. Order matters —
+  // the path line also ends in a file extension, so it must be caught first.
+  if (/^\s+expected at:/.test(s)) return 'l-dim';
+  if (/^\s{2,}\S.*(\([\d.]+\s?[KMGT]?B\)|\.\w{2,4})\s*$/.test(s)) return '';
   if (/^\s{2,}[a-z]/i.test(s)) return 'l-dim';
   return '';
 }
 
+// Copy-progress bar — the collect worker emits tab-tagged "§COPY§ done total speed eta label"
+// lines (bytes done / bytes total / bytes-per-sec / eta-seconds / current project), plus
+// "§COPY§ done" at the end. One animated bar for the whole run: it updates in place, its label
+// flicks through to whichever project is copying, and it's removed when finished.
+function handleCopyProgress(line) {
+  const p = line.split('\t');
+  const consoleEl = $('#console');
+  let bar = $('#copyProgress');
+  if (p[1] === 'done') { if (bar) bar.remove(); return; }
+
+  const done = Number(p[1]), total = Number(p[2]);
+  const speed = Number(p[3]), eta = Number(p[4]);
+  const label = p.slice(5).join('\t');
+  const frac = total > 0 ? done / total : 1;
+
+  const empty = consoleEl.querySelector('.console-empty');
+  if (empty) empty.remove();
+  if (!bar) {
+    bar = el('div', { id: 'copyProgress', class: 'copy-progress' },
+      el('div', { class: 'cp-track' }, el('div', { class: 'cp-fill' })),
+      el('div', { class: 'cp-label' }),
+      el('div', { class: 'cp-stats' })
+    );
+    consoleEl.appendChild(bar);
+  }
+  bar.querySelector('.cp-fill').style.width = (frac * 100).toFixed(1) + '%';
+  // Two rows so nothing gets truncated in the narrow console: the project on top,
+  // the numbers underneath.
+  bar.querySelector('.cp-label').textContent = `Copying ${label}`;
+  bar.querySelector('.cp-stats').textContent =
+    `${(frac * 100).toFixed(0)}%  ·  ${humanBytes(done)} / ${humanBytes(total)}`
+    + `  ·  ${humanBytes(speed)}/s  ·  ETA ${fmtDuration(eta)}`;
+
+  const nearBottom = consoleEl.scrollHeight - consoleEl.scrollTop - consoleEl.clientHeight < 80;
+  if (nearBottom) consoleEl.scrollTop = consoleEl.scrollHeight;
+}
+
+// Missing-file search — the collect worker emits "§SEARCH§ found total folder" while walking
+// the disk (and "§SEARCH§ done" at the end). Show ONE status line with a spinner, the found/total
+// tally and the current folder, removed when the search finishes. No fill bar: the search has no
+// known total number of folders, so it's a spinner, not a percentage.
+const SEARCH_SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
+let searchSpin = 0;
+function handleSearchProgress(line) {
+  const p = line.split('\t');
+  const consoleEl = $('#console');
+  let box = $('#searchProgress');
+  if (p[1] === 'done') { if (box) box.remove(); return; }
+
+  const found = Number(p[1]), total = Number(p[2]);
+  const folder = p.slice(3).join('\t');
+
+  const empty = consoleEl.querySelector('.console-empty');
+  if (empty) empty.remove();
+  if (!box) {
+    box = el('div', { id: 'searchProgress', class: 'copy-progress search' },
+      el('div', { class: 'cp-label' })
+    );
+    consoleEl.appendChild(box);
+  }
+  const frame = SEARCH_SPIN[searchSpin++ % SEARCH_SPIN.length];
+  box.querySelector('.cp-label').textContent =
+    `${frame}  Searching for missing samples  ·  ${found}/${total} found  ·  ${folder}`;
+
+  const nearBottom = consoleEl.scrollHeight - consoleEl.scrollTop - consoleEl.clientHeight < 80;
+  if (nearBottom) consoleEl.scrollTop = consoleEl.scrollHeight;
+}
+
+// m:ss, or h:mm:ss once past an hour — mirrors collect.py's _fmt_duration for the ETA.
+function fmtDuration(s) {
+  s = Math.round(s);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
+}
+
+function humanBytes(n) {
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let x = n, i = 0;
+  while (x >= 1024 && i < u.length - 1) { x /= 1024; i++; }
+  return (i === 0 ? x.toFixed(0) : x.toFixed(1)) + ' ' + u[i];
+}
+
+// Tracks whether the previously rendered row was a heavy ═ rule, so a heading printed directly
+// beneath one (a boxed title like the EXTERNAL PLUGINS SUMMARY) can skip l-head's dashed underline.
+// That underline is only the stand-in for the hidden '----' under bare filenames; inside a ═ box
+// it just doubles up with the bar below it.
+let _prevHeavyRule = false;
+
 function appendLog(line) {
+  if (line.startsWith('§COPY§')) { handleCopyProgress(line); return; }
+  if (line.startsWith('§SEARCH§')) { handleSearchProgress(line); return; }
+
   const consoleEl = $('#console');
   const empty = consoleEl.querySelector('.console-empty');
   if (empty) empty.remove();
@@ -836,16 +1169,50 @@ function appendLog(line) {
   const nearBottom = consoleEl.scrollHeight - consoleEl.scrollTop - consoleEl.clientHeight < 80;
 
   const sepMatch = line.match(/^\s*([═─])\1{5,}\s*$/);
-  const row = sepMatch
-    ? el('div', { class: 'console-rule ' + (sepMatch[1] === '═' ? 'heavy' : 'light') })
-    : el('div', { class: 'console-line ' + classifyLine(line), text: line || ' ' });
+  let row;
+  if (sepMatch) {
+    const heavy = sepMatch[1] === '═';
+    row = el('div', { class: 'console-rule ' + (heavy ? 'heavy' : 'light') });
+    _prevHeavyRule = heavy;
+  } else {
+    let cls = classifyLine(line);
+    if (cls === 'l-head' && _prevHeavyRule) cls += ' boxed';   // heading inside a ═ box
+    row = el('div', { class: 'console-line ' + cls, text: line || ' ' });
+    _prevHeavyRule = false;
+  }
   consoleEl.appendChild(row);
 
   if (nearBottom) consoleEl.scrollTop = consoleEl.scrollHeight;
 }
 
 function clearConsole() {
-  $('#console').textContent = '';
+  _prevHeavyRule = false;
+  const consoleEl = $('#console');
+  consoleEl.textContent = '';
+  consoleEl.appendChild(el('div', { class: 'console-empty' }));
+  renderConsoleEmpty();
+}
+
+// The idle console placeholder, worded for the active mode. No-op once a run has streamed
+// output (appendLog removes the .console-empty div on the first line).
+function renderConsoleEmpty() {
+  const empty = $('#console .console-empty');
+  if (!empty) return;
+  empty.textContent = '';
+  if (state.collect.enabled) {
+    empty.append(
+      el('p', {}, 'Pick a folder, set your Collect options and hit ', el('strong', { text: 'Collect' }), '.'),
+      el('p', { class: 'muted small' },
+        'Each project is gathered into a self-contained bundle with its samples & Max for Live devices. Your original ',
+        el('code', { text: '.als' }), ' is never touched.')
+    );
+  } else {
+    empty.append(
+      el('p', {}, 'Pick a folder, toggle your processing steps and hit ', el('strong', { text: 'Process' }), '.'),
+      el('p', { class: 'muted small' },
+        'Every run creates a new ', el('code', { text: '_processed.als' }), ' — your original ', el('code', { text: '.als' }), ' is never touched.')
+    );
+  }
 }
 
 // ════════════════════════════════════════════════════════════
