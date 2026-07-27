@@ -1,6 +1,6 @@
-# Default — convert to CRLF on Windows checkout
-* text=auto
-
-# Force LF for Mac/Linux scripts — never convert
+# Shell launchers MUST be LF — macOS/Linux won't run them otherwise
 *.command text eol=lf
-*.sh text eol=lf
+*.sh      text eol=lf
+
+# Windows batch launchers prefer CRLF
+*.bat     text eol=crlf
