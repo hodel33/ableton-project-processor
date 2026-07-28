@@ -47,13 +47,21 @@
       </div>
 
       <div class="actions">
-        <button class="btn btn-ghost" id="saveConfig" title="Save config.ini">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
-          Save config
+        <!-- Per-session config undo. Hidden until the config differs from how it was at
+             launch; turns amber (.accent) when the next press restores the pre-launch
+             state. All info lives in the title tooltip to keep it minimal. -->
+        <button class="btn btn-ghost revert-btn is-invisible" id="revertConfig" aria-label="Revert config">
+          <span class="revert-glyph" aria-hidden="true">↩</span>
         </button>
         <button class="btn btn-primary" id="runBtn" title="Start processing">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-          <span id="runLabel">Process</span>
+          <span class="run-label">
+            <!-- Invisible ghosts reserve the width of the widest label so the button never resizes
+                 (nothing to its left jumps) while staying tight to the text — no manual min-width. -->
+            <span class="run-label-ghost" aria-hidden="true">Process</span>
+            <span class="run-label-ghost" aria-hidden="true">Collect</span>
+            <span id="runLabel">Process</span>
+          </span>
         </button>
       </div>
     </header>

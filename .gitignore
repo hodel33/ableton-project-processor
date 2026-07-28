@@ -16,6 +16,9 @@ dist/
 .env
 *.log
 
+# Per-session GUI config-undo snapshots (regenerated each launch)
+config.ini.bak
+
 # Debug (local dev tools)
 debug.py
 

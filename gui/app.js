@@ -71,7 +71,7 @@ const state = {
   running: false,
   pollTimer: null,
   apiReady: false,
-  dirty: false,
+  revert: { differs: false, depth: 0, next_prelaunch: false },  // per-session config undo
 };
 
 const $  = (sel) => document.querySelector(sel);
@@ -119,57 +119,91 @@ async function api(method, ...args) {
   return window.pywebview.api[method](...args);
 }
 
-// Themed in-app confirm for still-missing files. Python (the collect worker) shows this via
-// run_js("showMissingModal(n)") and blocks on a threading.Event; whichever button the user
-// clicks calls resolve_missing(true/false), which releases the worker. Count only — the exact
-// files and where each was expected are already printed in full to the console just above.
-function showMissingModal(count) {
-  const modal = $('#missingModal');    // centering layer
-  const scrim = $('#missingScrim');
-  const appEl = document.getElementById('app');
-  const card  = modal.querySelector('.modal-card');
-  const body  = $('#missingBody');
-  const n = Number(count) || 0;
+// Generic themed confirm dialog, driving the one modal card in the markup. Used for both the
+// still-missing-files prompt and the config-revert prompt, so the look/drag/spotlight/keyboard
+// behaviour lives in one place. opts: { title, icon, bodyNodes[], confirmText, cancelText,
+// onResult(ok) }. onResult fires with the user's choice (Enter/Continue = true, Esc/Cancel =
+// false).
+function showConfirmModal(opts) {
+  const {
+    title = 'Confirm', icon = '⚠', bodyNodes = [],
+    confirmText = 'Continue', cancelText = 'Cancel', onResult,
+  } = opts || {};
+  const modal   = $('#missingModal');    // centering layer
+  const scrim   = $('#missingScrim');
+  const appEl   = document.getElementById('app');
+  const card    = modal.querySelector('.modal-card');
+  const titleEl = $('#missingTitle');
+  const body    = $('#missingBody');
+  const okBtn   = $('#missingContinue');
+  const noBtn   = $('#missingCancel');
+
+  titleEl.textContent = '';
+  titleEl.append(el('span', { class: 'modal-icon', text: icon }), ' ' + title);
   body.textContent = '';
-  body.append(
-    el('div', {},
-      el('span', { class: 'count', text: String(n) }),
-      ` file${n === 1 ? '' : 's'} could not be found and will stay OFFLINE.`),
-    el('div', { class: 'hint' },
-      'The exact files (and where each was expected) are listed in the console. '
-      + 'Cancel to abort — set a backup search location and re-run.')
-  );
+  bodyNodes.forEach((node) => body.append(node));
+  okBtn.textContent = confirmText;
+  noBtn.textContent = cancelText;
 
   // Windows puts the affirmative button on the LEFT, macOS/Linux on the RIGHT. HTML order is
-  // [Cancel][Collect anyway] (macOS); on Windows swap via `order` (group stays bottom-right).
+  // [Cancel][Continue] (macOS); on Windows swap via `order` (group stays bottom-right).
   const win = /Windows/i.test(navigator.userAgent);
-  $('#missingContinue').style.order = win ? '1' : '';
-  $('#missingCancel').style.order   = win ? '2' : '';
+  okBtn.style.order = win ? '1' : '';
+  noBtn.style.order = win ? '2' : '';
 
   // Draggable by its title bar — nudge it off the console on any screen size / window.
   card.style.transform = '';                        // reset to centered on each show
-  const stopDrag = makeDraggable(card, $('#missingTitle'));
+  const stopDrag = makeDraggable(card, titleEl);
 
+  // Guard against a double-fire: confirming with Enter triggers BOTH this keydown handler AND the
+  // auto-focused confirm button's native Enter-activation (a synthetic click) — without this, one
+  // confirm would run onResult twice (e.g. revert TWO steps per press). Runs once, first call wins.
+  let done = false;
   const finish = (ok) => {
+    if (done) return;
+    done = true;
     document.removeEventListener('keydown', onKey);
     stopDrag();
     modal.classList.remove('show');
     scrim.classList.remove('show');
     appEl.classList.remove('spotlight');
-    api('resolve_missing', ok);
+    if (onResult) onResult(ok);
   };
   const onKey = (e) => {
     if (e.key === 'Escape') finish(false);
     else if (e.key === 'Enter') finish(true);
   };
-  $('#missingContinue').onclick = () => finish(true);
-  $('#missingCancel').onclick   = () => finish(false);
+  okBtn.onclick = () => finish(true);
+  noBtn.onclick = () => finish(false);
   document.addEventListener('keydown', onKey);
 
   appEl.classList.add('spotlight');   // lift the console above the scrim
   scrim.classList.add('show');
   modal.classList.add('show');
-  $('#missingContinue').focus();
+  okBtn.focus();
+}
+
+// Themed in-app confirm for still-missing files. Python (the collect worker) shows this via
+// run_js("showMissingModal(n)") and blocks on a threading.Event; whichever button the user
+// clicks calls resolve_missing(true/false), which releases the worker. Count only — the exact
+// files and where each was expected are already printed in full to the console just above.
+function showMissingModal(count) {
+  const n = Number(count) || 0;
+  showConfirmModal({
+    title: 'Missing files',
+    icon: '⚠',
+    bodyNodes: [
+      el('div', {},
+        el('span', { class: 'count', text: String(n) }),
+        ` file${n === 1 ? '' : 's'} could not be found and will stay OFFLINE.`),
+      el('div', { class: 'hint' },
+        'The exact files (and where each was expected) are listed in the console. '
+        + 'Cancel to abort — set a backup search location and re-run.'),
+    ],
+    confirmText: 'Collect anyway',
+    cancelText: 'Cancel',
+    onResult: (ok) => api('resolve_missing', ok),
+  });
 }
 
 // Drag `card` by `handle`; returns a cleanup fn. Offset accumulates within a single showing.
@@ -219,6 +253,7 @@ async function init() {
   state.collect      = initial.collect      || {};
   state.als_files    = initial.als_files    || [];
   state.project_root = initial.project_root || '';
+  state.revert       = initial.revert       || state.revert;
 
   renderAll();
   wireGlobalEvents();
@@ -233,6 +268,7 @@ function renderAll() {
   renderSettings();
   renderPrefixes();
   renderPalette();
+  renderRevert();
 }
 
 // ════════════════════════════════════════════════════════════
@@ -532,10 +568,10 @@ function renderSettings() {
       placeholder: def.placeholder,
       spellcheck: 'false',
       dataset: { key: def.key },
-      oninput: () => {
-        state.settings[def.key] = input.value;
-        markDirty();
-      },
+      // Live-update state on every keystroke (so a Run picks up a not-yet-blurred field), but only
+      // COMMIT an undo step when the edit is done (blur / Enter / Tab) — one field = one step.
+      oninput: () => { state.settings[def.key] = input.value; },
+      onchange: () => markDirty(),
     });
 
     const wrap = el('div', { class: 'field' },
@@ -609,8 +645,7 @@ function renderPrefixes() {
       let lastCommittedName = p.prefix;
 
       nameInput.addEventListener('input', () => {
-        p.prefix = nameInput.value;
-        markDirty();
+        p.prefix = nameInput.value;   // live state; the 'change' handler below commits the step
       });
       // Commit on blur (Tab / click-away / Enter / Escape all trigger this)
       nameInput.addEventListener('change', () => {
@@ -674,9 +709,9 @@ function renderPrefixes() {
     });
     if (!isSpecial) {
       commentInput.addEventListener('input', () => {
-        p.comment = commentInput.value;
-        markDirty();
+        p.comment = commentInput.value;   // live state; commit the undo step on blur/Enter/Tab
       });
+      commentInput.addEventListener('change', () => markDirty());
     }
 
     const deleteBtn = el('button', {
@@ -938,7 +973,7 @@ function openPalettePicker(prefix) {
 function wireGlobalEvents() {
   $('#pickFolder').addEventListener('click', pickFolder);
   $('#rescan').addEventListener('click', () => rescan());
-  $('#saveConfig').addEventListener('click', () => saveConfig(true));
+  wireRevertButton($('#revertConfig'));
   $('#runBtn').addEventListener('click', runActive);
   $('#stopBtn').addEventListener('click', stopPipeline);
 
@@ -964,7 +999,7 @@ function wireGlobalEvents() {
   window.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
       e.preventDefault();
-      saveConfig(true);
+      flushAutosave();   // config already autosaves; Ctrl+S just forces a pending write now
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
@@ -1008,27 +1043,44 @@ function setAllSteps(on) {
 }
 
 // ════════════════════════════════════════════════════════════
-// CONFIG SAVE (explicit only — no auto-save)
+// CONFIG AUTOSAVE + PER-SESSION REVERT
 // ════════════════════════════════════════════════════════════
 
+let saveChain = Promise.resolve();  // serializes saves so overlapping writes can't race
+
+// Every config change commits immediately as its OWN undo step. Discrete changes (toggles,
+// segments, add/remove, reorder, colour, prefix-name commit) fire this on click; text fields fire
+// it on COMMIT (blur / Enter / Tab), NOT per keystroke — so one field edit is one step, and editing
+// several fields in quick succession never folds into a single step. (That folding — a shared
+// debounce timer across all fields — was the "revert only works twice" bug.)
 function markDirty() {
   updateActiveCount();
-  state.dirty = true;
-  const btn = $('#saveConfig');
-  if (btn) btn.classList.add('dirty');
+  commitConfig();
 }
 
-function clearDirty() {
-  state.dirty = false;
-  const btn = $('#saveConfig');
-  if (btn) btn.classList.remove('dirty');
+// Snapshot the payload NOW (synchronously) and queue the save behind any in-flight one. Capturing
+// synchronously is what preserves per-change granularity: each change saves the state AS IT WAS at
+// that change, so a burst of changes can't fold into a single latest-state write. Serializing on a
+// promise chain keeps the backend's read-modify-write of the undo stack from interleaving.
+function commitConfig() {
+  const payload = configPayload();
+  saveChain = saveChain.then(() => saveConfig(payload)).catch(() => {});
+  return saveChain;
 }
 
-async function saveConfig(explicit) {
-  if (!state.apiReady) return;
-  const payload = {
+// Commit the current state (covering a focused-but-not-yet-blurred text field) and wait for the
+// queue to settle, so a run / Ctrl+S always writes the very latest config first.
+async function flushAutosave() {
+  commitConfig();
+  await saveChain;
+}
+
+function configPayload() {
+  // Shallow-copy the collections so a payload captured synchronously by commitConfig is a true
+  // snapshot — later state edits can't mutate an already-queued save.
+  return {
     pipeline: state.pipeline.map((s) => ({ id: s.id, enabled: s.enabled })),
-    settings: state.settings,
+    settings: { ...state.settings },
     prefixes: state.prefixes.map((p) => ({ prefix: p.prefix, sort: p.sort, color: p.color, comment: p.comment || '' })),
     collect: {
       enabled:                !!state.collect.enabled,
@@ -1037,16 +1089,112 @@ async function saveConfig(explicit) {
       collect_ableton_packs:  !!state.collect.collect_ableton_packs,
       collect_m4l_devices:    !!state.collect.collect_m4l_devices,
       write_report:           !!state.collect.write_report,
-      backup_search_locations: state.collect.backup_search_locations || [],
+      backup_search_locations: [...(state.collect.backup_search_locations || [])],
     },
   };
-  const res = await api('save_config', payload);
+}
+
+async function saveConfig(payload) {
+  if (!state.apiReady) return;
+  const res = await api('save_config', payload || configPayload());
   if (!res || !res.ok) {
     toast((res && res.error) || 'Failed to save config', 'error');
     return;
   }
-  clearDirty();
-  if (explicit) toast('Saved config.ini', 'success');
+  if (res.revert) { state.revert = res.revert; renderRevert(); }
+}
+
+// The Revert control: hidden until the config differs from launch; amber when the next press
+// would restore the pre-launch state. All guidance is in the tooltip only, to stay minimal.
+// A QUICK click steps back one state; a LONG PRESS jumps straight to pre-launch.
+function renderRevert() {
+  const btn = $('#revertConfig');
+  if (!btn) return;
+  const r = state.revert || {};
+  // Toggle visibility, NOT display — the button keeps its slot in the layout either way, so the
+  // folder row / browse buttons never shift when it appears or disappears.
+  btn.classList.toggle('is-invisible', !r.differs);
+  btn.classList.toggle('accent', !!r.next_prelaunch);
+  btn.title = r.next_prelaunch
+    ? 'Revert config to how it was before you opened the app'
+    : 'Revert config one step back  ·  hold to jump back to before you opened the app';
+}
+
+// One confirm box for both paths. `prelaunchText` picks the wording; `forcePrelaunch` tells the
+// backend to jump all the way to pre-launch (long-press) rather than step one state (quick click).
+function confirmRevert(prelaunchText, forcePrelaunch) {
+  showConfirmModal({
+    title: 'Revert config',
+    icon: '↩',
+    bodyNodes: [
+      el('div', {}, prelaunchText
+        ? 'Revert your configuration to how it was before you opened the app?'
+        : 'Revert your configuration one step back to its previous state?'),
+      el('div', { class: 'hint' }, 'Your current changes will be discarded.'),
+    ],
+    confirmText: 'Revert',
+    cancelText: 'Cancel',
+    // On revert, doRevert re-renders the button; on cancel, restore it explicitly so the
+    // long-press accent flash clears back to the button's real state.
+    onResult: (ok) => { if (ok) doRevert(forcePrelaunch); else renderRevert(); },
+  });
+}
+
+// Quick click → one step back (which lands on pre-launch when that's the only step left, so the
+// wording follows next_prelaunch). Long press → straight to pre-launch regardless of depth.
+function onRevertClick()     { confirmRevert(!!(state.revert && state.revert.next_prelaunch), false); }
+function onRevertLongPress() { confirmRevert(true, true); }
+
+// Quick click vs long press on the revert button. 500ms is the cross-platform long-press standard
+// (iOS UILongPressGestureRecognizer / Android getLongPressTimeout both default to it). Holding past
+// that flashes the accent, opens the jump-to-pre-launch confirm, and swallows the click that
+// follows on release; a shorter press falls through to the normal one-step-back click.
+const LONG_PRESS_MS = 500;
+function wireRevertButton(btn) {
+  if (!btn) return;
+  let timer = null, fired = false;
+  const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+  btn.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;                 // primary button / touch only
+    fired = false;
+    timer = setTimeout(() => {
+      timer = null;
+      fired = true;
+      btn.classList.add('accent');   // cool detail: snap to accent the instant the hold lands
+      onRevertLongPress();
+    }, LONG_PRESS_MS);
+  });
+  btn.addEventListener('pointerup', cancel);
+  btn.addEventListener('pointerleave', cancel);
+  btn.addEventListener('pointercancel', cancel);
+  btn.addEventListener('click', () => {
+    if (fired) { fired = false; return; }       // the long press already handled this hold
+    onRevertClick();
+  });
+}
+
+async function doRevert(toPrelaunch) {
+  // Let any in-flight saves finish so we revert from a settled undo stack rather than racing a
+  // queued write.
+  await saveChain;
+  const res = await api('revert_config', !!toPrelaunch);
+  if (!res || !res.ok) {
+    toast((res && res.error) || 'Could not revert config', 'error');
+    return;
+  }
+  // Repopulate the whole GUI from the reverted config.
+  state.pipeline = res.pipeline || [];
+  state.settings = res.settings || {};
+  state.prefixes = res.prefixes || [];
+  state.collect  = res.collect  || {};
+  state.revert   = res.revert   || state.revert;
+  renderCollect();
+  renderPipeline();
+  renderSettings();
+  renderPrefixes();
+  renderPalette();
+  renderRevert();
+  rescan(true);              // collect.enabled may have flipped → refresh the file list silently
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1057,10 +1205,7 @@ async function saveConfig(explicit) {
 // the Process button label already reflects which one this will start.
 async function runActive() {
   if (state.running) return;
-  if (state.dirty) {
-    toast('You have unsaved changes — hit Save config first.', 'error');
-    return;
-  }
+  await flushAutosave();   // config autosaves; make sure any pending write lands before we run
 
   const collect = !!state.collect.enabled;
   const res = await api(collect ? 'run_collect' : 'run_pipeline');

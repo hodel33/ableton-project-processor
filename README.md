@@ -161,6 +161,8 @@ A webview app — pick a project folder, toggle your steps, tweak settings, choo
 
 > ⏹️ **Stop any time** — both a processing run and a Collect run can be halted mid-way with the **Stop** button. It never cuts off in the middle of writing a file: it finishes what it's on (the current file while processing, the current project during Collect) and stops cleanly before the next.
 
+> ↩️ **Autosave & Revert** — the GUI saves your settings to `config.ini` automatically as you change them, so nothing's ever lost between sessions. Changed something you didn't mean to? The **Revert** button (↩, next to **Collect/Process**) steps back through your recent edits — it appears once the config differs from how it was when you opened the app. A **quick click** undoes one change at a time (the last 3 are kept), and **holding the button** jumps straight back to how everything was before you launched the app. Reverting only affects settings — it never touches your projects.
+
 #### 🪟 Windows
 Double-click `run_gui.bat`. On first launch, `pywebview` is installed automatically (takes ~30s).
 

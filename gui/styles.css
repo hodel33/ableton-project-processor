@@ -183,6 +183,18 @@ html, body {
   align-items: center;
 }
 
+/* Run button holds one width for both labels: the label stacks the visible text over invisible
+   "ghost" copies of every possible word (Process / Collect) in one grid cell, so the box is exactly
+   as wide as the widest word — no slack, no manual min-width. The button never resizes on the
+   "Process" ⇄ "Collect" swap, so nothing to its left ever jumps. */
+#runBtn { justify-content: center; padding-left: 12px; padding-right: 14px; }
+.run-label {
+  display: inline-grid;
+  justify-items: center;
+}
+.run-label > * { grid-area: 1 / 1; }
+.run-label-ghost { visibility: hidden; }
+
 /* ── Buttons ────────────────────────────────────────────── */
 
 .btn {
@@ -219,6 +231,26 @@ html, body {
   color: var(--amber-hi);
   border-color: var(--amber);
   background: var(--amber-dim);
+}
+
+/* ── Per-session Revert button ──────────────────────────── */
+
+/* Clean/ghost by default; amber (.accent) only on the final step back — the one that restores
+   the pre-launch config. No accent in any other state. */
+.revert-btn { padding: 6px 11px; color: var(--ink-2); }
+.revert-btn:hover { color: var(--ink-0); }
+.revert-glyph { font-size: 17px; line-height: 1; }
+/* Hidden but still occupies its slot, so showing/hiding it never reflows the header. */
+.revert-btn.is-invisible { visibility: hidden; }
+.revert-btn.accent {
+  color: var(--amber-hi);
+  border-color: var(--amber);
+  background: var(--amber-dim);
+}
+.revert-btn.accent:hover {
+  color: var(--amber-hi);
+  border-color: var(--amber-hi);
+  background: var(--amber-glow);
 }
 
 .btn-primary {

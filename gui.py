@@ -11,6 +11,7 @@ step functions verbatim — this module is a thin shell that:
 The original CLI (`ableton_project_processor.py`) is untouched and fully usable.
 """
 import importlib.util
+import json
 import queue
 import re
 import sys
@@ -33,9 +34,15 @@ from collect import run_collect as run_collect_job, find_collect_als
 
 ROOT_DIR    = Path(__file__).parent.resolve()
 CONFIG_PATH = ROOT_DIR / "config.ini"
+BAK_PATH    = ROOT_DIR / "config.ini.bak"   # per-session undo snapshots (see Api's config undo)
 GUI_DIR     = ROOT_DIR / "gui"
 INDEX_HTML  = GUI_DIR / "index.html"
 ICON_PATH   = GUI_DIR / "logo.ico"
+
+# How many in-session revert steps to keep — the sliding window of recent states (slots
+# -1, -2, -3). The pinned pre-launch snapshot (-4) sits beneath them and is never evicted,
+# so the deepest step is always "back to how it was before the app opened".
+MAX_UNDO    = 3
 
 
 # ── On-screen layout width ────────────────────────────────────────────────────
@@ -488,6 +495,16 @@ class Api:
         self._missing_event = threading.Event()   # released when the missing-files modal is answered
         self._missing_result = False              # the user's choice from that modal
 
+        # ── Per-session config undo (the GUI's Revert control) ───────────────
+        # A pristine snapshot of config.ini as it was the moment the app launched
+        # (the pinned "before you opened the app" state, slot -4), plus a sliding
+        # window of the last few in-session states to step back through (-1..-3).
+        # Purely a per-session safety net — re-taken on every launch. Mirrored to
+        # config.ini.bak so the four snapshots survive a crash within the session.
+        self._cfg_prelaunch: str = self._read_config_text()
+        self._cfg_recent: list[str] = []          # recent prior states, oldest → newest
+        self._write_bak()
+
     # ── Meta ─────────────────────────────────────────────────
     def get_initial_state(self) -> dict:
         try:
@@ -502,6 +519,7 @@ class Api:
             "project_root": str(self._project_root),
             "config_path": str(CONFIG_PATH),
             "als_files": self._scan(collect_mode),
+            "revert": self._revert_state(),
             **cfg,
         }
 
@@ -548,15 +566,84 @@ class Api:
 
     # ── Config ───────────────────────────────────────────────
     def save_config(self, payload: dict) -> dict:
+        """Persist config.ini (the GUI's debounced autosave calls this). Before
+        overwriting, the state being replaced is pushed onto the undo window so it
+        can be reverted to. Returns the fresh revert state so the frontend can
+        update the Revert control after every save."""
         try:
+            prev = self._read_config_text()
             write_config_from_dict(payload)
-            return {"ok": True}
+            if self._read_config_text() != prev:   # a real change → a revert target
+                self._push_undo(prev)
+                self._write_bak()
+            return {"ok": True, "revert": self._revert_state()}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
     def reload_config(self) -> dict:
         try:
             return {"ok": True, **read_config_as_dict()}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    # ── Per-session config undo ──────────────────────────────
+    def _read_config_text(self) -> str:
+        """The current config.ini as text, or '' if it isn't there."""
+        try:
+            return CONFIG_PATH.read_text(encoding="utf-8")
+        except OSError:
+            return ""
+
+    def _write_bak(self) -> None:
+        """Mirror the four snapshots (pinned pre-launch + up to three recent) to
+        config.ini.bak as one JSON container. Best-effort — a failed backup must
+        never break a save, so any error is swallowed."""
+        try:
+            BAK_PATH.write_text(
+                json.dumps({"prelaunch": self._cfg_prelaunch, "recent": self._cfg_recent}),
+                encoding="utf-8")
+        except OSError:
+            pass
+
+    def _push_undo(self, prev_text: str) -> None:
+        """Record the state we're about to leave as a revert target. Skipped when it
+        equals the pinned pre-launch snapshot (that slot already covers it, so it's
+        never duplicated) or the newest recent state (a no-op save). The window holds
+        at most MAX_UNDO; the oldest recent falls off first, the pinned snapshot never
+        does."""
+        if prev_text == self._cfg_prelaunch:
+            return
+        if self._cfg_recent and self._cfg_recent[-1] == prev_text:
+            return
+        self._cfg_recent.append(prev_text)
+        if len(self._cfg_recent) > MAX_UNDO:
+            self._cfg_recent.pop(0)
+
+    def _revert_state(self) -> dict:
+        """What the frontend needs to draw the Revert control: whether the live config
+        differs from the pinned pre-launch snapshot (show the button at all), how many
+        recent steps remain, and whether the NEXT revert would restore the pre-launch
+        snapshot (the accented, 'all the way back' press)."""
+        differs = self._read_config_text() != self._cfg_prelaunch
+        depth   = len(self._cfg_recent)
+        return {"differs": differs, "depth": depth, "next_prelaunch": depth == 0}
+
+    def revert_config(self, to_prelaunch: bool = False) -> dict:
+        """Step the config back. Normally one state: the newest recent snapshot, or —
+        once those are exhausted — the pinned pre-launch one (never consumed, so the
+        final step is always 'back to how it was before opening the app'). With
+        to_prelaunch=True (the button's long-press) it jumps STRAIGHT to pre-launch
+        and clears the recent window (those states are now ahead of us, and there's no
+        redo). Rewrites config.ini and returns the reverted config for the GUI."""
+        try:
+            if to_prelaunch:
+                target = self._cfg_prelaunch
+                self._cfg_recent.clear()
+            else:
+                target = self._cfg_recent.pop() if self._cfg_recent else self._cfg_prelaunch
+            CONFIG_PATH.write_text(target, encoding="utf-8")
+            self._write_bak()
+            return {"ok": True, "revert": self._revert_state(), **read_config_as_dict()}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
@@ -728,6 +815,13 @@ def main():
     )
     icon = _ensure_icon()
     webview.start(debug=False, icon=str(icon) if icon else None)
+
+    # webview.start() blocks until the window closes; on a clean exit, remove the per-session
+    # undo store (see Api's config undo). It carries no cross-session value — the next launch
+    # re-snapshots from scratch — and a lingering config.ini.bak reads like a restorable backup
+    # when it's really stale internal JSON. A crash skips this line, but the next launch just
+    # overwrites the file anyway, so nothing depends on it being cleaned up.
+    BAK_PATH.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
