@@ -210,6 +210,7 @@ The master mode switch. When `enabled = true`, the run **collects** instead of p
 [COLLECT]
 enabled                = true    # master switch: this run collects instead of processing
 versions               = 1       # how many recent versions per project to collect: 1 | 3 | 5 | all
+workspace_levels_up    = 0       # keep samples ANYWHERE under the folder(s) ABOVE the project (subfolders too) in place, not collected: 0 = off, 1/2/3 = how many levels up count as home
 collect_ableton_packs  = false   # also copy in samples from Ableton's Core Library + Add-On Packs
 collect_m4l_devices    = true    # copy Max for Live devices (.amxd) into the bundle
 write_report           = true    # write "@ Required Plugins & Packs.txt" inside each bundle
@@ -218,6 +219,7 @@ backup_search_location = C:\Samples | D:\Projects | E:\Collabs  # optional — o
 
 - `enabled` — `true` switches this run to Collect mode; `false` runs the normal cleaning pipeline.
 - `versions` — for a project folder holding several saved versions, how many of the most recent `.als` files to collect: `1`, `3`, `5`, or `all`.
+- `workspace_levels_up` — keep samples that live in the folder(s) **above** your Ableton project *in place* instead of copying them into the bundle. `0` (default) = off, collect every external sample as usual; `1` = the folder directly above your project counts as home; `2` or `3` reaches further up (`3` is the max). Set it to match how far your own song folder sits above the Ableton project. See [🏠 Keeping workspace samples in place](#-keeping-workspace-samples-in-place-workspace_levels_up) for exactly what it does, a picture, and how to pick the right number. *(In the GUI: the **Keep workspace samples** control in the Collect panel — Off / 1 / 2 / 3.)*
 - `collect_ableton_packs` — `true` also copies in samples from Ableton's Core Library and Add-On Packs, making the bundle fully standalone; `false` leaves them out (the report lists which Packs are needed). Off by default, since most people already have those Packs.
 - `collect_m4l_devices` — `true` (the default) copies each project's Max for Live devices (`.amxd`) into the bundle. Set `false` if the target machine (or your collaborator) already has your M4L devices — they're then left out and the report lists which ones are needed. On by default, since M4L devices are often custom/third-party and *not* something the other side is guaranteed to have.
 - `write_report` — `true` (the default) writes a short `@ Required Plugins & Packs.txt` inside each bundle (next to the collected `.als`), listing the plugins and Packs the project needs; set `false` to skip it.
@@ -385,6 +387,50 @@ What you point it at decides the layout:
 - **A real Ableton project folder** (the kind with an `Ableton Project Info` folder next to the `.als`) → filled **in place**, leaving whatever's already inside untouched. Samples that already live inside the project stay exactly where they are — the script only pulls in the ones sitting *outside* the project (plus any Max for Live devices) into `Samples/Collected/` and `Presets/Collected/`. So it just tops up what was scattered elsewhere, without disturbing your existing structure.
 
 > 🗂️ **Multiple versions, one shared copy** — when you set `versions` above `1`, all of a project's collected versions share the *same* `Samples/Collected/` and `Presets/Collected/`. A sample used by several versions is copied just **once** and every version's `.als` is relinked to that single copy — never a duplicate per version. Two different files that happen to share a name are kept apart automatically, and even samples Ableton had lost (and the collector tracked back down on disk) resolve to the one real file. Because the shared samples aren't duplicated, collecting several versions costs little more disk space than collecting one.
+
+### 🏠 Keeping workspace samples in place (`workspace_levels_up`)
+
+A lot of producers keep their **song's own folder one level above Ableton's project folder**. The top folder is *your* workspace for the whole track — rough bounces, stem exports, loose idea `.wav`s — and the actual Ableton project (the one with `Ableton Project Info/`, `Samples/`, `Backup/`) sits *inside* it as a subfolder:
+
+```
+My Track - Sunrise/                    ←  YOUR song workspace folder   ("1 level up")
+├─ Bounces/
+│  ├─ Sunrise_mixdown_v3.wav           ─┐
+│  └─ Sunrise_radio_edit.wav            │  live OUTSIDE the Ableton project,
+├─ Stems/                               │  but INSIDE your song workspace
+│  └─ vocal_chop_idea.wav               │
+├─ Sunrise 03.09.wav                   ─┘
+│
+└─ Sunrise Project/                     ←  the actual ABLETON PROJECT folder
+   ├─ Ableton Project Info/
+   ├─ Samples/                          ←  samples already inside the project
+   ├─ Backup/
+   └─ Sunrise.als                       ←  the .als being collected
+```
+
+To Ableton, everything outside `Sunrise Project/` is "external" — so by default Collect **copies all of it in**, duplicating your bounces, stems and idea `.wav`s into `Sunrise Project/Samples/Collected/`. If that folder above is deliberately your home base for the song, that's wasted space and needless re-linking: you *want* those files to stay put.
+
+**`workspace_levels_up` fixes that.** It tells Collect how many folders **above** the project count as "home." Anything living in that home folder (and any subfolder of it) is **left exactly where it is** — not copied, its link untouched — while genuinely foreign samples (from elsewhere on your disk) are still collected normally. With the tree above and `workspace_levels_up = 1`, `My Track - Sunrise/` becomes home:
+
+| File | `= 0` (default, off) | `= 1` (one level up) |
+| --- | --- | --- |
+| `Bounces/Sunrise_mixdown_v3.wav` | copied into `Samples/Collected/` | **left in place** ✅ |
+| `Stems/vocal_chop_idea.wav` | copied in | **left in place** ✅ |
+| `Sunrise 03.09.wav` | copied in | **left in place** ✅ |
+| a sample from `D:\Some Pack\` | copied in | copied in (it's not "home") |
+| samples already in `Sunrise Project/Samples/` | untouched | untouched |
+
+> 💡 If a "home" sample was one Ableton had lost and flagged **Missing**, and the search tracks it back down inside your home folder, it's **reconnected where it sits** (still not copied) — so it opens online without being duplicated. This only ever applies to **audio samples** in a **real Ableton project folder** (not a loose `.als`, which always becomes its own fully self-contained bundle). Max for Live devices are always bundled regardless.
+
+#### 🔢 Picking the right number
+
+Count the folders from the `.als`'s own folder **up** to your song's top folder — that's your number. In the example the `.als` sits in `Sunrise Project/` and your song folder is one step above it, so `workspace_levels_up = 1`. For most layouts **`1` is exactly right**; use `2` or `3` (the maximum) only if your project is nested an extra folder or two deeper inside your song workspace.
+
+#### ⚠️ Don't set it too high
+
+Setting this too high makes a **bundle that quietly isn't portable**. Worst case: you set it so high (say `3`–`4`) that "home" balloons up to a folder that also contains **other projects or your whole sample library**. Now *any* sample that happens to sit somewhere under that huge umbrella — even one that really belongs to a *different* song — is judged "home, leave it" and is **not** copied into the bundle. The Collect looks like it succeeded… but move that bundle to another computer or send it to a collaborator and those samples show up **offline**, because they only ever existed at a path outside the bundle on *your* machine. You'd have told the tool those files were home turf when they were never part of this song at all.
+
+> 🛡️ **Built-in guard** — you can't accidentally nuke the whole thing: if the number is high enough that "home" would reach your **drive root** (like `C:\`) or your **user home folder**, the tool refuses to treat something that broad as home and simply switches the feature **off** for that project. So the danger isn't an absurdly high number (that just does nothing) — it's the *middle ground* that's high enough to swallow neighbouring projects but not high enough to trip the guard. The safe rule stays simple: **set it to the number of levels up to your song's own top folder, and no higher.** Usually that's `1`.
 
 ### 📄 The requirements report
 

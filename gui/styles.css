@@ -413,9 +413,11 @@ html, body {
 #panel-collect .step { grid-template-columns: 1fr auto; }
 #panel-collect .step .step-num { display: none; }
 
-/* Keep the toggle group tight (8px, like Processing) but give the two fields around it
-   (Versions above, Backup below) extra breathing room — ~14px, matching the Settings panel. */
+/* Keep the toggle group tight (8px, like Processing) but give the standalone fields around it
+   (Versions + Keep-workspace above, Backup below) extra breathing room — ~14px, matching the
+   Settings panel — so they don't visually merge into the toggle block below/above them. */
 #panel-collect .collect-body > .field:first-child { margin-bottom: 6px; }
+#panel-collect .collect-body > .field.field-keep   { margin-bottom: 6px; }
 #panel-collect .collect-body > .field:last-child  { margin-top: 6px; }
 
 /* ═══════════════════════════════════════════════════════════

@@ -393,6 +393,7 @@ def read_config_as_dict() -> dict:
     collect = {
         "enabled":               _cget('enabled').lower() == 'true',
         "versions":              _cget('versions') or '1',
+        "workspace_levels":      _cget('workspace_levels_up') or '0',
         "collect_ableton_packs": (_cget('collect_ableton_packs') or 'true').lower() == 'true',
         "collect_m4l_devices":   (_cget('collect_m4l_devices') or 'true').lower() == 'true',
         "write_report":          (_cget('write_report') or 'true').lower() == 'true',
@@ -429,6 +430,7 @@ def write_config_from_dict(payload: dict) -> None:
         collect_map = {
             'enabled':                'true' if collect.get('enabled') else 'false',
             'versions':               str(collect.get('versions', '1')),
+            'workspace_levels_up':    str(collect.get('workspace_levels', '0')),
             'collect_ableton_packs':  'true' if collect.get('collect_ableton_packs', True) else 'false',
             'collect_m4l_devices':    'true' if collect.get('collect_m4l_devices', True) else 'false',
             'write_report':           'true' if collect.get('write_report', True) else 'false',

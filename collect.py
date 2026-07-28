@@ -153,8 +153,39 @@ def build_project_index(project_root: Path):
     return by_name_size, by_name
 
 
+def _within(path: Path, root: Path) -> bool:
+    """True when `path` sits inside `root` (root already resolved). The workspace home-zone
+    test: a sample resolving under root is left where it is instead of collected."""
+    try:
+        path.resolve().relative_to(root)
+        return True
+    except (ValueError, OSError):
+        return False
+
+
+def workspace_root(project_root: Path, levels: int) -> Path | None:
+    """The 'home zone' root — `levels` folders above the project folder. Samples that resolve
+    anywhere under it are kept in place (not copied). Returns None when the feature is off
+    (levels <= 0) or the walk would land on a drive root / the home folder: there, treating
+    everything below as 'nearby' would wrongly keep unrelated projects' samples out of the
+    bundle and collect almost nothing — so an over-large `levels` is guarded to a no-op."""
+    if levels <= 0:
+        return None
+    root = project_root
+    for _ in range(levels):
+        root = root.parent
+    try:
+        root = root.resolve()
+    except OSError:
+        return None
+    if root == Path(root.anchor) or root == Path.home():
+        return None
+    return root
+
+
 def classify_ref(block: str, als_dir: Path, idx_ns: dict, idx_n: dict,
-                 skip_packs: bool, skip_m4l: bool = False, is_m4l: bool = False):
+                 skip_packs: bool, skip_m4l: bool = False, is_m4l: bool = False,
+                 keep_root: Path | None = None):
     """Decide what to do with one SampleRef / MxPatchRef. Returns (category, source_path_or_None, filename)."""
     ptype    = _field(block, 'RelativePathType')
     path_raw = _field(block, 'Path')
@@ -213,13 +244,20 @@ def classify_ref(block: str, als_dir: Path, idx_ns: dict, idx_n: dict,
     if src is not None:
         return ('inside', src, name)
 
-    # 3. Outside but resolvable at its recorded location?
+    # 3. Outside but resolvable at its recorded location? A sample that resolves inside the
+    #    workspace "home zone" (keep_root — folders above the project) is left where it is:
+    #    returned 'keep', not copied, its ref untouched. Samples only — M4L is always bundled.
+    def verdict(p: Path) -> tuple:
+        if keep_root is not None and not is_m4l and _within(p, keep_root):
+            return ('keep', p, name)
+        return ('outside', p, name)
+
     if abs_path and Path(abs_path).is_file():
-        return ('outside', Path(abs_path), name)
+        return verdict(Path(abs_path))
     if rel_path:
         p = (als_dir / rel_path).resolve()
         if p.is_file():
-            return ('outside', p, name)
+            return verdict(p)
 
     # 4. Nowhere to be found
     return ('missing', None, name)
@@ -699,6 +737,11 @@ def write_plugin_report(out_als: Path, plugins: list, m4l: list, packs: list,
 # one definition. Collect adds one extra rule of its own: skip *_collected.als.
 VERSION_CHOICES = ('1', '3', '5', 'all')
 
+# workspace_levels_up ceiling — matches the GUI's Off/1/2/3 control (COLLECT_WORKSPACE_LEVELS
+# in app.js). A hand-edited config value above this is clamped, so 3 is a true maximum
+# everywhere; deeper than that risks a home zone that swallows unrelated projects.
+MAX_WORKSPACE_LEVELS = 3
+
 
 def find_collect_als(target: Path) -> list:
     """
@@ -780,7 +823,7 @@ def group_collect_targets(als_files: list, versions: str) -> list:
 
 
 def analyze_als(als_path: Path, project_root: Path, idx_ns: dict, idx_n: dict,
-                skip_packs: bool, skip_m4l: bool) -> dict:
+                skip_packs: bool, skip_m4l: bool, keep_root: Path | None = None) -> dict:
     """
     Read one .als and classify every sample / M4L reference. Pure analysis — no disk
     writes, no locating yet — so a batch can pool every version's results before it
@@ -795,7 +838,7 @@ def analyze_als(als_path: Path, project_root: Path, idx_ns: dict, idx_n: dict,
     tagged = ([('sample', s, e, c) for (s, e, c) in find_blocks(xml, 'SampleRef')]
               + [('m4l', s, e, c) for (s, e, c) in find_blocks(xml, 'MxPatchRef')])
     infos  = [(s, e, kind, *classify_ref(c, project_root, idx_ns, idx_n, skip_packs, skip_m4l,
-                                         is_m4l=(kind == 'm4l')))
+                                         is_m4l=(kind == 'm4l'), keep_root=keep_root))
               for (kind, s, e, c) in tagged]     # → (start, end, kind, category, src, name)
 
     return {'als': als_path, 'xml': xml, 'tagged': tagged, 'infos': infos}
@@ -857,7 +900,8 @@ def claim_dest(out_dir: Path, folder: str, src: Path, used: dict) -> str:
 
 def plan_collect(als_list: list, project_root: Path, is_real_project: bool, out_dir: Path,
                  skip_packs: bool, skip_m4l: bool, display_root: Path,
-                 backup_roots: list | None = None, should_stop=None, cli: bool = True) -> dict:
+                 backup_roots: list | None = None, should_stop=None, cli: bool = True,
+                 workspace_levels: int = 0) -> dict:
     """
     ANALYSE one or more .als files destined for ONE output folder, and return a plan.
     Touches nothing on disk — so every unit in a run can be planned first, the user
@@ -877,8 +921,14 @@ def plan_collect(als_list: list, project_root: Path, is_real_project: bool, out_
     # Loose → empty index, so nothing counts as 'inside' and every sample is collected.
     idx_ns, idx_n = build_project_index(project_root) if is_real_project else ({}, {})
 
+    # The workspace "home zone" — samples living in the folders AROUND the project are kept in
+    # place, never copied. Real projects only: a loose .als has no surrounding project to anchor
+    # to, and it collects everything into its own bundle by design.
+    keep_root = workspace_root(project_root, workspace_levels) if is_real_project else None
+
     # ── Phase 1: analyse every version up front ──────────────────────────────────
-    analyses = [analyze_als(a, project_root, idx_ns, idx_n, skip_packs, skip_m4l) for a in als_list]
+    analyses = [analyze_als(a, project_root, idx_ns, idx_n, skip_packs, skip_m4l, keep_root)
+                for a in als_list]
 
     # ── Phase 2: ONE auto-find pass (Tiers 1–4) across all versions ──────────────
     # Pooling the orphans means the potentially-large disk scan runs once for the whole
@@ -888,7 +938,7 @@ def plan_collect(als_list: list, project_root: Path, is_real_project: bool, out_
     resolved_dirs, to_find = set(), []
     for fi, an in enumerate(analyses):
         for i, (_s, _e, _k, cat, src, name) in enumerate(an['infos']):
-            if cat in ('inside', 'outside') and src is not None:
+            if cat in ('inside', 'outside', 'keep') and src is not None:
                 resolved_dirs.add(src.parent)
             elif cat == 'missing':
                 blk    = an['tagged'][i][3]
@@ -904,7 +954,11 @@ def plan_collect(als_list: list, project_root: Path, is_real_project: bool, out_
     n_recovered = len(set(located.values()))   # unique offline files the search rescued
     for (fi, i), path in located.items():
         s, e, kind, _cat, _src, name = analyses[fi]['infos'][i]
-        analyses[fi]['infos'][i] = (s, e, kind, 'outside', path, name)
+        # A recovered sample sitting in the home zone is RELINKED in place (its ref repointed
+        # to where it was found, no copy); anything else is collected into the bundle as usual.
+        new_cat = ('relink' if (keep_root is not None and kind != 'm4l'
+                                and _within(path, keep_root)) else 'outside')
+        analyses[fi]['infos'][i] = (s, e, kind, new_cat, path, name)
 
     # ── Phase 3: ONE shared assignment map for the whole batch ───────────────────
     # Keyed by resolved source path, so the same physical file always maps to the same
@@ -947,6 +1001,15 @@ def plan_collect(als_list: list, project_root: Path, is_real_project: bool, out_
                                (name, size, show_path(loc, display_root) if loc else ''))
             gone[kind].add((name.lower(), size))
     missing = list(missing.values())
+
+    # Home-zone samples left in place (workspace_levels_up): 'keep' (already linked) and
+    # 'relink' (was Missing, reconnected to where it sits). Neither is copied. Counted by
+    # unique source, so a file used by many clips/versions counts once. M4L never lands here.
+    kept_src = {'sample': set(), 'm4l': set()}
+    for an in analyses:
+        for _s, _e, kind, cat, src, _name in an['infos']:
+            if cat in ('keep', 'relink') and src is not None:
+                kept_src[kind].add(src)
 
     # Which files will actually be copied, and how many bytes total?
     #   • src == dest (a real project's internal samples)          → nothing to do
@@ -1004,17 +1067,22 @@ def plan_collect(als_list: list, project_root: Path, is_real_project: bool, out_
 
     # ── The box: same shape as the processor's per-project summary ────────────────
     def tally(kind: str, noun: str = '') -> tuple[int, str]:
-        """(total, '12 files  (11 collected | 1 missing)').
+        """(total, '12 files  (9 collected | 2 kept | 1 missing)').
 
         'collected' folds together copied, already-in-destination and already-in-project
-        — the byte cost of each is the Disk row's job. The breakdown is omitted entirely
-        when nothing is missing.
+        — the byte cost of each is the Disk row's job. 'kept' is the home-zone files left in
+        place. The breakdown is shown only when something isn't a plain collect (kept or missing).
         """
         ok    = copied[kind] + uptodate[kind] + inproj[kind]
+        kept  = len(kept_src[kind])
         lost  = len(gone[kind])
-        total = ok + lost
+        total = ok + kept + lost
         head  = f"{total} {noun}".rstrip()
-        return total, head + (f"  ({ok} collected | {lost} missing)" if lost else '')
+        if kept or lost:
+            seg = [f"{ok} collected"] + ([f"{kept} kept"] if kept else []) \
+                                      + ([f"{lost} missing"] if lost else [])
+            head += "  (" + " | ".join(seg) + ")"
+        return total, head
 
     rows = []
     if is_real_project:   # which version(s) got picked — the whole point of the versions setting
@@ -1192,14 +1260,26 @@ def execute_collect(plan: dict, plugin_report: bool = False, cli: bool = True,
         xml = an['xml']
         # reverse order so earlier offsets stay valid while splicing
         for start, end, _kind, cat, src, _name in sorted(an['infos'], key=lambda t: -t[0]):
-            if cat in ('missing', 'pack', 'm4l_skip'):
+            # 'keep' = a home-zone sample already linked correctly → leave its ref BYTE-UNTOUCHED
+            # (the collected .als is written in place, so its existing relative path still resolves).
+            if cat in ('missing', 'pack', 'm4l_skip', 'keep'):
                 continue
-            rel     = assignments[src]
-            new_abs = (out_dir / rel).resolve().as_posix()
-            block   = xml[start:end]
-            block   = _set_field(block, 'RelativePathType', '3')
-            block   = _set_field(block, 'RelativePath', _xml(rel))
-            block   = _set_field(block, 'Path', _xml(new_abs))
+            block = xml[start:end]
+            if cat == 'relink':
+                # Home-zone sample Ableton had flagged Missing: reconnect it to where it actually
+                # sits — no copy. Document-relative (type 1), the same form as any external sample.
+                # Resolve BOTH sides before relpath: the located src is already resolved, so an
+                # unresolved out_dir (e.g. an 8.3 short path) would otherwise share no common
+                # prefix and yield a giant ../../.. chain instead of a clean relative path.
+                new_abs = src.resolve().as_posix()
+                rel     = Path(os.path.relpath(new_abs, out_dir.resolve())).as_posix()
+                block   = _set_field(block, 'RelativePathType', '1')
+            else:   # 'inside' / 'outside' — collected into the bundle, repointed project-relative
+                rel     = assignments[src]
+                new_abs = (out_dir / rel).resolve().as_posix()
+                block   = _set_field(block, 'RelativePathType', '3')
+            block = _set_field(block, 'RelativePath', _xml(rel))
+            block = _set_field(block, 'Path', _xml(new_abs))
             xml = xml[:start] + block + xml[end:]
         an['xml']     = xml
         an['out_als'] = out_dir / f"{an['als'].stem}_collected.als"
@@ -1251,6 +1331,12 @@ def load_collect_settings(config) -> dict:
         v = raw(key).lower()
         return default if v == '' else v == 'true'
 
+    def intval(key: str, default: int) -> int:
+        try:
+            return max(0, int(raw(key) or default))
+        except ValueError:
+            return default
+
     versions = raw('versions') or '1'
     if versions not in VERSION_CHOICES:
         versions = '1'
@@ -1262,6 +1348,7 @@ def load_collect_settings(config) -> dict:
 
     return {
         'versions':      versions,
+        'workspace_levels': min(MAX_WORKSPACE_LEVELS, intval('workspace_levels_up', 0)),  # 0 = off; capped at 3 (GUI parity)
         'skip_packs':    not flag('collect_ableton_packs', False),   # default: leave Packs out
         'skip_m4l':      not flag('collect_m4l_devices', True),      # default: collect M4L devices
         'plugin_report': flag('write_report', True),
@@ -1328,6 +1415,10 @@ def run_collect(root: Path, config, *, on_confirm_start=None, on_confirm_missing
         if n_real:   # meaningless when there is nothing but loose .als files
             print(f"  {'Versions':<{SW}}: "
                   f"{'all' if cfg['versions'] == 'all' else cfg['versions'] + ' most recent'} per project folder")
+            wl = cfg['workspace_levels']
+            print(f"  {'Workspace':<{SW}}: "
+                  + ('Off — all external samples collected' if wl == 0
+                     else f"{wl} folder level(s) up left in place, not collected"))
         print(f"  {'Ableton Packs':<{SW}}: {'NOT Included' if cfg['skip_packs'] else 'Included'}")
         print(f"  {'M4L devices':<{SW}}: {'NOT Included' if cfg['skip_m4l'] else 'Included'}")
         print(f"  {'Report':<{SW}}: {'Enabled' if cfg['plugin_report'] else 'Disabled'}")
@@ -1389,7 +1480,8 @@ def run_collect(root: Path, config, *, on_confirm_start=None, on_confirm_missing
         out_dir = proot if is_real else proot / f"{files[0].stem}_collected"
         plans.append(plan_collect(files, proot, is_real, out_dir,
                                    cfg['skip_packs'], cfg['skip_m4l'], root,
-                                   cfg['backup_roots'], should_stop=should_stop, cli=cli))
+                                   cfg['backup_roots'], should_stop=should_stop, cli=cli,
+                                   workspace_levels=cfg['workspace_levels']))
     # A Stop pressed mid-scan of the LAST unit's backup search won't hit the loop-top check above,
     # so catch it here too — before the missing-files prompt and any copying.
     if should_stop is not None and should_stop():

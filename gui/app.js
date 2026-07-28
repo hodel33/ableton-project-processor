@@ -64,7 +64,7 @@ const state = {
   pipeline: [],       // [{id, label, description, enabled}]
   settings: {},       // {key: string}
   prefixes: [],       // [{prefix, sort, color, category, comment}]
-  collect: {},        // {enabled, versions, collect_ableton_packs, collect_m4l_devices, write_report, backup_search_locations[]}
+  collect: {},        // {enabled, versions, workspace_levels, collect_ableton_packs, collect_m4l_devices, write_report, backup_search_locations[]}
   als_files: [],      // [{name, folder, path}]
   project_root: '',
   filter: 'all',
@@ -342,6 +342,9 @@ function updateActiveCount() {
 // ════════════════════════════════════════════════════════════
 
 const COLLECT_VERSIONS = ['1', '3', '5', 'all'];
+// "Keep workspace samples" — how many folder levels ABOVE the project count as your workspace; a
+// sample living there is left in place instead of copied into the bundle. 0 = off.
+const COLLECT_WORKSPACE_LEVELS = ['0', '1', '2', '3'];
 
 // One toggle row, reusing the pipeline .step look (empty num cell keeps the grid).
 function collectToggleRow(key, label, desc) {
@@ -379,6 +382,18 @@ function renderCollect() {
     }));
   }
 
+  // "Keep workspace samples" segmented control — folder levels above the project kept in place.
+  const wseg = el('div', { class: 'seg' });
+  const wcur = String(state.collect.workspace_levels || '0');
+  for (const v of COLLECT_WORKSPACE_LEVELS) {
+    wseg.appendChild(el('button', {
+      class: 'seg-btn' + (wcur === v ? ' active' : ''),
+      type: 'button',
+      text: v === '0' ? 'Off' : v,
+      onclick: () => { state.collect.workspace_levels = v; renderCollect(); markDirty(); },
+    }));
+  }
+
   const body = $('#collectBody');
   body.textContent = '';
   body.append(
@@ -386,6 +401,11 @@ function renderCollect() {
       el('label', {}, 'Versions per project ', el('span', { class: 'hint', text: 'newest first, by last-saved date' })),
       seg,
       el('div', { class: 'field-note', text: 'Only applies to a saved Ableton Project (a folder). A standalone .als is always collected on its own.' })
+    ),
+    el('div', { class: 'field field-keep' },
+      el('label', {}, 'Keep workspace samples ', el('span', { class: 'hint', text: 'folder(s) above your project' })),
+      wseg,
+      el('div', { class: 'field-note', text: 'Samples anywhere in your workspace (the folder above your project) are left in place, not copied into the bundle. Off = collect them all.' })
     ),
     collectToggleRow('collect_ableton_packs', 'Include Ableton Pack content',
       'Copy Ableton Core Library + Add-On Pack samples in, so the bundle needs no Ableton Packs installed elsewhere'),
@@ -1013,6 +1033,7 @@ async function saveConfig(explicit) {
     collect: {
       enabled:                !!state.collect.enabled,
       versions:               String(state.collect.versions || '1'),
+      workspace_levels:       String(state.collect.workspace_levels || '0'),
       collect_ableton_packs:  !!state.collect.collect_ableton_packs,
       collect_m4l_devices:    !!state.collect.collect_m4l_devices,
       write_report:           !!state.collect.write_report,
