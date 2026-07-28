@@ -4,7 +4,7 @@
 
 ## 📋 Overview
 
-**Ableton Project Processor** is a swiss-army toolbox for your Ableton `.als` files, working directly on them at the XML level — no Live needed, nothing ever opened in the app. Its standout feature is a **batch "Collect All and Save"**: point it at a folder and every project gets packed into a clean, portable bundle — all its samples, warp files and Max for Live devices copied in and relinked, even ones Ableton had lost — ready to hand off, move to another machine or archive, dozens of projects in the time Live takes to open one. On top of that it **batch-cleans and transforms** your sets: tidy up a chaotic client project, quantize and transpose all MIDI like magic, auto-sort and recolor every track in one pass, strip unused devices, or export a detailed report of every external plugin used across your sessions. Whichever you run, it works on a fresh copy alongside the original — a `_processed.als` or a `_collected` bundle — without ever touching a single knob.
+**Ableton Project Processor** is a swiss-army toolbox for your Ableton `.als` files, working directly on them at the XML level — no Live needed, nothing ever opened in the app. Its standout feature is a **batch "Collect All and Save"**: point it at a folder and every project gets packed into a clean, portable bundle — all its samples, warp files and Max for Live devices copied in and relinked, even ones Ableton had lost — ready to hand off, move to another machine or archive, dozens of projects in the time Live takes to open one. On top of that it **batch-cleans and transforms** your sets: tidy up a chaotic client project, quantize and transpose all MIDI like magic, auto-sort and recolor every track in one pass, convert mixer automation into Utility automation, strip unused devices, or export a detailed report of every external plugin used across your sessions. Whichever you run, it works on a fresh copy alongside the original — a `_processed.als` or a `_collected` bundle — without ever touching a single knob.
 
 > Curious how it all works under the hood? Have a look at the [🔍 How It Works](#-how-it-works) section further down.
 
@@ -83,7 +83,7 @@ I've always loved the magic of automation — that feeling when you kick off one
 
 ## 🕰️ Older projects (before Live 11)
 
-This tool reads the **Live 11 & 12** project format. Ableton rewrote how a `.als` stores samples, automation and colors when the new File Manager arrived in Live 11, so anything saved by **Live 10 or older uses a different internal layout** the tool can't read safely.
+This tool reads the **Live 11 & 12** project format. Ableton rewrote how a `.als` stores samples, automation and track data when the new File Manager arrived in Live 11, so anything saved by **Live 10 or older uses a different internal layout** the tool can't read safely.
 
 Rather than quietly mangling those files, it **detects the version and skips them** — in both Collect and Processing — and tells you which ones and why. In the GUI they're flagged in red in the file list; in the terminal they're listed with a short note.
 
@@ -109,7 +109,7 @@ Rather than quietly mangling those files, it **detects the version and skips the
      python3 --version    # macOS
      ```
 
-2. ⬇️ **Download the app** — the easy way:
+2. ⬇️ **Download the app**:
 
 > 📦 [**Download as ZIP**](https://github.com/hodel33/ableton-project-processor/archive/refs/heads/main.zip) → **unzip it** → done. Everything's already arranged inside — you don't move or rename any files.
 
