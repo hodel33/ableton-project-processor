@@ -390,7 +390,7 @@ What you point it at decides the layout:
 
 ### 🏠 Keeping workspace samples in place (`workspace_levels_up`)
 
-A lot of producers keep their **song's own folder one level above Ableton's project folder**. The top folder is *your* workspace for the whole track — rough bounces, stem exports, loose idea `.wav`s — and the actual Ableton project (the one with `Ableton Project Info/`, `Samples/`, `Backup/`) sits *inside* it as a subfolder:
+Some producers keep their **song's "home" folder one level above Ableton's project folder**. The top folder is *your* workspace for the whole track — rough bounces, stem exports, loose idea `.wav`s — and the actual Ableton project (the one with `Ableton Project Info/`, `Samples/`, `Backup/`) sits *inside* it as a subfolder:
 
 ```
 My Track - Sunrise/                    ←  YOUR song workspace folder   ("1 level up")
