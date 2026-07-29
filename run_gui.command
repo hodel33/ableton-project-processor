@@ -1,5 +1,5 @@
 #!/bin/bash
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 
 if ! command -v python3 >/dev/null 2>&1; then
     echo "Python 3 is not installed. Please install it from https://www.python.org/downloads/ first."
@@ -13,9 +13,12 @@ fi
 # and installs inside one always are allowed.
 PY=".venv/bin/python3"
 
-if [ ! -x "$PY" ]; then
+# Test that the venv's python actually RUNS, not just that the file is there — a
+# Python upgrade leaves .venv/bin/python3 as a dangling symlink, and plain
+# `venv` won't repair one (it skips any path that is already a link), so --clear.
+if ! "$PY" -c "" 2>/dev/null; then
     echo "First-run setup: creating local Python environment (.venv)..."
-    if ! python3 -m venv .venv; then
+    if ! python3 -m venv --clear .venv; then
         echo "Could not create .venv — falling back to the system Python."
         PY="python3"
     fi
