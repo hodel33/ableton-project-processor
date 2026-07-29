@@ -18,10 +18,32 @@ import sys
 import threading
 from pathlib import Path
 
+# Normally the launchers (run_gui.command / run_gui.bat) have already installed the
+# dependencies, so this is only a safety net for running `python gui.py` by hand.
 if importlib.util.find_spec("webview") is None:
     import subprocess
     print("First-run setup: installing pywebview (this may take a minute)...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pywebview"])
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pywebview"])
+    except subprocess.CalledProcessError:
+        # Most likely a PEP 668 "externally-managed-environment" refusal — Homebrew,
+        # MacPorts and most Linux distros forbid pip installs into their global Python.
+        print(
+            "\nCould not install pywebview into this Python installation.\n"
+            f"  ({sys.executable})\n\n"
+            "It is probably managed by Homebrew or your OS package manager, which\n"
+            "blocks installing into it. Use a virtual environment instead:\n\n"
+            "  python3 -m venv .venv\n"
+            "  .venv/bin/python3 -m pip install -r requirements.txt\n"
+            "  .venv/bin/python3 gui.py\n\n"
+            "Or just launch via run_gui.command (macOS) / run_gui.bat (Windows),\n"
+            "which does all of the above for you.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    # The import system caches directory listings; without this the freshly
+    # installed package can still look missing to the import below.
+    importlib.invalidate_caches()
 import webview
 
 import ableton_project_processor as app

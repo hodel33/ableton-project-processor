@@ -169,6 +169,8 @@ Double-click `run_gui.bat`. On first launch, `pywebview` is installed automatica
 #### 🍎 macOS
 Double-click `run_gui.command`. On first launch, two external libraries `pywebview` + `pyobjc` are installed automatically (takes ~1 min — `pyobjc` is large).
 
+> 📦 They go into a `.venv` folder created next to the launcher, not into your system Python — so nothing on your Mac is modified, and it works no matter whether your `python3` came from python.org, Homebrew or MacPorts. To undo everything, just delete `.venv`.
+
 First-time setup is required once due to macOS security restrictions:
 
 1. Open **Terminal** — either via:
